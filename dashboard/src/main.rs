@@ -1,5 +1,11 @@
 use anyhow::Result;
-use axum::{Json, Router, extract::State, response::IntoResponse, routing::get};
+use axum::{
+    Json, Router,
+    extract::{Request, State},
+    middleware::{self, Next},
+    response::IntoResponse,
+    routing::get,
+};
 use chrono::{DateTime, Utc};
 mod chat;
 use regex::Regex;
@@ -17,7 +23,11 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{fs, sync::RwLock};
+use tokio::{
+    fs,
+    sync::{RwLock, Semaphore},
+    task::JoinSet,
+};
 use tower_http::services::ServeDir;
 
 static GITHUB_RATE_REMAINING: AtomicI64 = AtomicI64::new(-1);
@@ -89,7 +99,8 @@ struct AppState {
     persisted: Arc<RwLock<Value>>,
     data_file: PathBuf,
     client: Client,
-    threads: Arc<RwLock<Vec<Value>>>,
+    threads: Arc<RwLock<Arc<Vec<Value>>>>,
+    covers: Arc<RwLock<HashMap<String, String>>>,
     live_chat_id: Arc<RwLock<Option<String>>>,
 }
 
@@ -147,6 +158,58 @@ async fn health(State(app): State<AppState>) -> (axum::http::StatusCode, &'stati
     } else {
         (axum::http::StatusCode::OK, "ok")
     }
+}
+
+fn apply_cache_policy(path: &str, response: &mut axum::response::Response) {
+    if matches!(path, "/api/state" | "/api/chat" | "/api/short-meta") {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
+        if response.status().is_success() {
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/json; charset=utf-8"),
+            );
+        }
+    } else if path != "/healthz" && response.status().is_success() {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        let content_type = if path == "/" {
+            Some("text/html; charset=utf-8")
+        } else if path.ends_with(".html") {
+            Some("text/html; charset=utf-8")
+        } else if path.ends_with(".css") {
+            Some("text/css; charset=utf-8")
+        } else if path.ends_with(".js") {
+            Some("text/javascript; charset=utf-8")
+        } else if path.ends_with(".svg") {
+            Some("image/svg+xml")
+        } else if path.ends_with(".png") {
+            Some("image/png")
+        } else if path.ends_with(".woff2") {
+            Some("font/woff2")
+        } else if path.ends_with(".json") {
+            Some("application/json; charset=utf-8")
+        } else {
+            None
+        };
+        if let Some(content_type) = content_type {
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static(content_type),
+            );
+        }
+    }
+}
+
+async fn cache_policy(request: Request, next: Next) -> axum::response::Response {
+    let path = request.uri().path().to_owned();
+    let mut response = next.run(request).await;
+    apply_cache_policy(&path, &mut response);
+    response
 }
 
 async fn fetch_json(client: &Client, url: &str, token: Option<&str>) -> Result<Value> {
@@ -209,6 +272,41 @@ async fn fetch_report(
                 .contains("<!-- progress-report -->")
         })
         .map(|c| report_counts(c["body"].as_str().unwrap_or_default())))
+}
+
+async fn fetch_reports_concurrently(
+    client: &Client,
+    repo: &str,
+    numbers: impl IntoIterator<Item = i64>,
+    token: Option<&str>,
+) -> HashMap<i64, Result<Option<Value>>> {
+    const MAX_IN_FLIGHT: usize = 4;
+    let semaphore = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
+    let mut tasks = JoinSet::new();
+    let mut results = HashMap::new();
+    for number in numbers {
+        let permit = match semaphore.clone().acquire_owned().await {
+            Ok(permit) => permit,
+            Err(error) => {
+                results.insert(number, Err(anyhow::anyhow!(error.to_string())));
+                continue;
+            }
+        };
+        let client = client.clone();
+        let repo = repo.to_owned();
+        let token = token.map(str::to_owned);
+        tasks.spawn(async move {
+            let _permit = permit;
+            let report = fetch_report(&client, &repo, number, token.as_deref()).await;
+            (number, report)
+        });
+    }
+    while let Some(joined) = tasks.join_next().await {
+        if let Ok((number, result)) = joined {
+            results.insert(number, result);
+        }
+    }
+    results
 }
 
 async fn youtube_stats(
@@ -323,36 +421,15 @@ async fn github_graphql(
 async fn collect_games(
     client: &Client,
     data: Arc<RwLock<Value>>,
-    all_threads: Arc<RwLock<Vec<Value>>>,
+    all_threads: Arc<RwLock<Arc<Vec<Value>>>>,
+    covers: Arc<RwLock<HashMap<String, String>>>,
 ) {
     let Some(token) = env::var("GITHUB_TOKEN").ok().filter(|s| !s.is_empty()) else {
         return;
     };
     let repo = env::var("ANYPS5_REPO").unwrap_or_else(|_| "boykopovar/AnyPS5".into());
     let (owner, name) = repo.split_once('/').unwrap_or(("boykopovar", "AnyPS5"));
-    let roadmap = env::var("ROADMAP_URL")
-        .unwrap_or_else(|_| "https://alxcbtw.github.io/anyps5-roadmap".into());
-    let mut covers = std::collections::HashMap::<String, String>::new();
-    if let Ok(value) = fetch_json(
-        client,
-        &format!("{}/roadmap.json", roadmap.trim_end_matches('/')),
-        None,
-    )
-    .await
-    {
-        for game in value["games"].as_array().into_iter().flatten() {
-            let image = game["image"]["wide"]
-                .as_str()
-                .or(game["image"]["square"].as_str());
-            if let Some(image) = image {
-                for title in game["titles"].as_array().into_iter().flatten() {
-                    if let Some(id) = title["id"].as_str() {
-                        covers.insert(id.to_owned(), image.to_owned());
-                    }
-                }
-            }
-        }
-    }
+    let covers = covers.read().await.clone();
     let category = github_graphql(
         client,
         &token,
@@ -403,13 +480,13 @@ async fn collect_games(
         }
         after = connection["pageInfo"]["endCursor"].clone();
     }
-    let threads: Vec<Value> = discussions.iter().map(|d| {
+    let threads: Arc<Vec<Value>> = Arc::new(discussions.iter().map(|d| {
         let title = d["title"].as_str().unwrap_or_default();
         let id = GAME_ID_RE.find(title).map(|m| m.as_str());
         let game_name = id.map(|id| title[..title.find(id).unwrap_or(0)].trim_end_matches([' ', '(', '—', '–', ':', '-']).to_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| title.to_owned());
         let stage = game_stage(d["body"].as_str().unwrap_or_default()).map(|i| GAME_STAGES[i]);
         json!({"number":d["number"],"name":game_name,"titleId":id,"stage":stage,"replies":d["comments"]["totalCount"],"createdAt":d["createdAt"],"updatedAt":d["updatedAt"],"cover":id.and_then(|id| covers.get(id))})
-    }).collect();
+    }).collect());
     let count = |stage: &str| threads.iter().filter(|t| t["stage"] == stage).count();
     let now = Utc::now();
     let active = threads
@@ -438,10 +515,234 @@ async fn collect_games(
         .collect();
     rockstar.sort_by_key(|t| -t["replies"].as_i64().unwrap_or(0));
     let games = json!({"tracked":threads.len(),"inGame":count("In game"),"menu":count("Menu"),"active24h":active,"stages":GAME_STAGES.iter().map(|stage|json!({"name":stage,"count":count(stage)})).collect::<Vec<_>>(),"recent":threads.iter().take(24).cloned().collect::<Vec<_>>(),"highlights":highlights,"rockstar":rockstar});
-    *all_threads.write().await = threads.clone();
+    *all_threads.write().await = threads;
     let mut state = data.write().await;
     state["games"] = games;
     state["sources"]["games"] = json!({"ok":true,"at":now.to_rfc3339()});
+}
+
+async fn collect_covers(
+    client: &Client,
+    data: Arc<RwLock<Value>>,
+    covers: Arc<RwLock<HashMap<String, String>>>,
+) {
+    let roadmap = env::var("ROADMAP_URL")
+        .unwrap_or_else(|_| "https://alxcbtw.github.io/anyps5-roadmap".into());
+    match fetch_json(
+        client,
+        &format!("{}/roadmap.json", roadmap.trim_end_matches('/')),
+        None,
+    )
+    .await
+    {
+        Ok(value) => {
+            let mut entries = HashMap::new();
+            for game in value["games"].as_array().into_iter().flatten() {
+                let Some(image) = game["image"]["wide"]
+                    .as_str()
+                    .or(game["image"]["square"].as_str())
+                else {
+                    continue;
+                };
+                for id in game["titles"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|title| title["id"].as_str())
+                {
+                    entries.insert(id.to_owned(), image.to_owned());
+                }
+            }
+            *covers.write().await = entries;
+            let mut state = data.write().await;
+            state["sources"]["covers"] = json!({"ok":true,"at":Utc::now().to_rfc3339()});
+        }
+        Err(error) => {
+            let mut state = data.write().await;
+            let at = state["sources"]["covers"]["at"].clone();
+            state["sources"]["covers"] = json!({"ok":false,"at":at,"error":error.to_string()});
+        }
+    }
+}
+
+async fn publish_core_progress(app: &AppState, progress: &Result<Value>, history: &Result<Value>) {
+    let Ok(progress) = progress else {
+        return;
+    };
+    let now = Utc::now();
+    let now_text = now.to_rfc3339();
+    let date = now.format("%Y-%m-%d").to_string();
+    let history_points = history
+        .as_ref()
+        .ok()
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let persisted = app.persisted.read().await.clone();
+    let groups = progress["libraries"]["groups"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let summaries: Vec<Value> = groups
+        .iter()
+        .map(|group| {
+            json!({
+                "name":group["name"],
+                "label":group.get("label").unwrap_or(&group["name"]),
+                "done":group["done"],
+                "total":group["done"].as_i64().unwrap_or(0)+group["todo"].as_i64().unwrap_or(0)
+            })
+        })
+        .collect();
+    let snapshot_libraries: serde_json::Map<String, Value> = groups
+        .iter()
+        .map(|group| {
+            (
+                group["name"].as_str().unwrap_or_default().to_owned(),
+                json!([
+                    group["done"],
+                    group["done"].as_i64().unwrap_or(0) + group["todo"].as_i64().unwrap_or(0)
+                ]),
+            )
+        })
+        .collect();
+    let mut preview = persisted;
+    if let Ok(points) = history {
+        insert_events(
+            &mut preview,
+            history_events(points.as_array().map(Vec::as_slice).unwrap_or(&[])),
+        );
+    }
+    let snapshots = preview["snapshots"].as_array_mut().unwrap();
+    let previous_snapshot = snapshots.last().cloned();
+    let snapshot = json!({"date":date,"libraries":snapshot_libraries});
+    if snapshots.last().and_then(|item| item["date"].as_str()) == Some(date.as_str()) {
+        *snapshots.last_mut().unwrap() = snapshot;
+    } else {
+        snapshots.push(snapshot);
+    }
+    if snapshots.len() > 35 {
+        let remove = snapshots.len() - 35;
+        snapshots.drain(0..remove);
+    }
+    let reference = snapshots
+        .iter()
+        .rev()
+        .find(|item| item["date"].as_str().unwrap_or_default() < date.as_str())
+        .cloned();
+    if let Some(previous) = previous_snapshot {
+        let mut changes = Vec::new();
+        for group in &summaries {
+            let name = group["name"].as_str().unwrap_or("");
+            let current_total = group["total"].as_i64().unwrap_or(0);
+            let current_done = group["done"].as_i64().unwrap_or(0);
+            let Some(old) = previous["libraries"][name].as_array() else {
+                changes.push(json!({"time":now_text,"kind":"discovery","title":format!("New library: {name}"),"detail":format!("{current_total} exports declared, {current_done} already implemented.")}));
+                continue;
+            };
+            let old_done = old[0].as_i64().unwrap_or(0);
+            let old_total = old[1].as_i64().unwrap_or(0);
+            if current_total - old_total >= 5 {
+                changes.push(json!({"time":now_text,"kind":"discovery","title":format!("{name}: +{} exports discovered",current_total-old_total)}));
+            }
+            if current_done - old_done >= 25 {
+                changes.push(json!({"time":now_text,"kind":"library","title":format!("{name}: +{} functions implemented",current_done-old_done)}));
+            }
+            if current_total > 0 && current_done == current_total && old_done < old_total {
+                changes.push(json!({"time":now_text,"kind":"complete","title":format!("{name} reached 100%"),"detail":format!("{current_total} of {current_total} functions.")}));
+            }
+        }
+        insert_events(&mut preview, changes);
+    }
+    let mut all = summaries.clone();
+    all.retain(|group| group["total"].as_i64().unwrap_or(0) > 0);
+    all.sort_by_key(|group| -group["total"].as_i64().unwrap_or(0));
+    let mut biggest = all.clone();
+    biggest.truncate(10);
+    let complete = summaries
+        .iter()
+        .filter(|group| group["total"].as_i64().unwrap_or(0) > 0 && group["done"] == group["total"])
+        .count();
+    let started = summaries
+        .iter()
+        .filter(|group| group["done"].as_i64().unwrap_or(0) > 0 && group["done"] != group["total"])
+        .count();
+    let untouched = summaries
+        .iter()
+        .filter(|group| group["done"].as_i64().unwrap_or(0) == 0)
+        .count();
+    let mut movers: Vec<Value> = reference
+        .as_ref()
+        .map(|reference| {
+            summaries
+                .iter()
+                .filter_map(|group| {
+                    let name = group["name"].as_str()?;
+                    let before = reference["libraries"][name][0].as_i64().unwrap_or(0);
+                    let gained = group["done"].as_i64().unwrap_or(0) - before;
+                    (gained > 0).then(|| {
+                        json!({
+                            "name":group["name"], "label":group["label"], "done":group["done"],
+                            "total":group["total"], "gained":gained
+                        })
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    movers.sort_by_key(|item| -item["gained"].as_i64().unwrap_or(0));
+    movers.truncate(8);
+    let delta = |days: i64| {
+        let target = (now - chrono::Duration::days(days))
+            .format("%Y-%m-%d")
+            .to_string();
+        history_points
+            .iter()
+            .rev()
+            .find(|item| item["date"].as_str().unwrap_or_default() <= target.as_str())
+            .map(|item| {
+                json!({
+                    "done":progress["libraries"]["done"].as_i64().unwrap_or(0)-item["libraries"]["done"].as_i64().unwrap_or(0),
+                    "total":progress["libraries"]["total"].as_i64().unwrap_or(0)-item["libraries"]["total"].as_i64().unwrap_or(0),
+                    "percent":((progress["libraries"]["percent"].as_f64().unwrap_or(0.0)-item["libraries"]["percent"].as_f64().unwrap_or(0.0))*100.0).round()/100.0
+                })
+            })
+            .unwrap_or(Value::Null)
+    };
+    let progress_view = json!({
+        "done":progress["libraries"]["done"], "total":progress["libraries"]["total"],
+        "percent":progress["libraries"]["percent"], "shadersDone":progress["shaders"]["done"],
+        "shadersTotal":progress["shaders"]["total"], "shadersPercent":progress["shaders"]["percent"],
+        "day":delta(1), "week":delta(7)
+    });
+    let libraries_view = json!({
+        "count":summaries.len(), "complete":complete, "started":started, "untouched":untouched,
+        "biggest":biggest, "all":all, "movers":movers,
+        "moversSince":reference.as_ref().and_then(|item|item["date"].as_str())
+    });
+    let history_view = history
+        .as_ref()
+        .ok()
+        .and_then(Value::as_array)
+        .map(|entries| {
+            json!(entries.iter().map(|entry|json!({
+                "date":entry["date"],"commit":entry["commit"],"done":entry["libraries"]["done"],"total":entry["libraries"]["total"],
+                "percent":entry["libraries"]["percent"],"shadersDone":entry["shaders"]["done"],"shadersTotal":entry["shaders"]["total"]
+            })).collect::<Vec<_>>())
+        });
+    let mut state = app.data.write().await;
+    state["progress"] = progress_view;
+    state["libraries"] = libraries_view;
+    state["events"] = preview["events"].clone();
+    state["sources"]["progress"] = json!({"ok":true,"at":now_text});
+    state["updatedAt"] = json!(now_text);
+    if let Some(history_view) = history_view {
+        state["history"] = history_view;
+        state["sources"]["history"] = json!({"ok":true,"at":now_text});
+    } else {
+        state["sources"]["history"] =
+            json!({"ok":false,"at":null,"error":"history source unavailable"});
+    }
 }
 
 async fn collect(app: AppState) {
@@ -490,30 +791,34 @@ async fn collect(app: AppState) {
         );
         // Independent sources share a pooled client and are fetched concurrently.
         let (
-            progress,
-            history,
-            repository,
-            pulls,
-            open_pulls,
-            release,
-            open_count,
-            week_count,
-            day_count,
+            (progress, history),
+            (repository, pulls, open_pulls, release, open_count, week_count, day_count),
         ) = tokio::join!(
-            fetch_json(&app.client, &progress_url, None),
-            fetch_json(&app.client, &history_url, None),
-            fetch_json(&app.client, &api, token.as_deref()),
-            fetch_json(&app.client, &api_pulls, token.as_deref()),
-            fetch_json(&app.client, &api_open, token.as_deref()),
-            fetch_json(&app.client, &api_release, token.as_deref()),
-            fetch_json(&app.client, &search_open, token.as_deref()),
-            fetch_json(&app.client, &search_week, token.as_deref()),
-            fetch_json(&app.client, &search_day, token.as_deref())
+            async {
+                let (progress, history) = tokio::join!(
+                    fetch_json(&app.client, &progress_url, None),
+                    fetch_json(&app.client, &history_url, None)
+                );
+                publish_core_progress(&app, &progress, &history).await;
+                (progress, history)
+            },
+            async {
+                tokio::join!(
+                    fetch_json(&app.client, &api, token.as_deref()),
+                    fetch_json(&app.client, &api_pulls, token.as_deref()),
+                    fetch_json(&app.client, &api_open, token.as_deref()),
+                    fetch_json(&app.client, &api_release, token.as_deref()),
+                    fetch_json(&app.client, &search_open, token.as_deref()),
+                    fetch_json(&app.client, &search_week, token.as_deref()),
+                    fetch_json(&app.client, &search_day, token.as_deref())
+                )
+            }
         );
         let mut merged_reports = std::collections::HashMap::<String, Value>::new();
         let mut open_report_values = std::collections::HashMap::<String, Value>::new();
         if let Ok(items) = &pulls {
             let existing = app.persisted.read().await["prReports"].clone();
+            let mut pending = Vec::new();
             for pull in items
                 .as_array()
                 .into_iter()
@@ -528,35 +833,49 @@ async fn collect(app: AppState) {
                 let report = if let Some(cached) = existing.get(&key) {
                     cached.clone()
                 } else {
-                    match fetch_report(&app.client, &repo, number, token.as_deref()).await {
-                        Ok(report)
-                            if report.is_some()
-                                || Utc::now().timestamp()
-                                    - chrono::DateTime::parse_from_rfc3339(
-                                        pull["merged_at"]
-                                            .as_str()
-                                            .unwrap_or("1970-01-01T00:00:00Z"),
-                                    )
-                                    .map(|d| d.timestamp())
-                                    .unwrap_or(0)
-                                    > 120 =>
-                        {
-                            report.unwrap_or(Value::Null)
-                        }
-                        _ => continue,
-                    }
+                    let merged_at = chrono::DateTime::parse_from_rfc3339(
+                        pull["merged_at"].as_str().unwrap_or("1970-01-01T00:00:00Z"),
+                    )
+                    .map(|date| date.timestamp())
+                    .unwrap_or(0);
+                    pending.push((key, number, merged_at));
+                    continue;
                 };
                 merged_reports.insert(key, report);
+            }
+            let rate_remaining = GITHUB_RATE_REMAINING.load(Ordering::Relaxed);
+            let fetched = if rate_remaining < 0 || rate_remaining >= 10 {
+                fetch_reports_concurrently(
+                    &app.client,
+                    &repo,
+                    pending
+                        .iter()
+                        .map(|(_, number, _)| *number)
+                        .collect::<Vec<_>>(),
+                    token.as_deref(),
+                )
+                .await
+            } else {
+                HashMap::new()
+            };
+            let now = Utc::now().timestamp();
+            for (key, number, merged_at) in pending {
+                if let Some(Ok(report)) = fetched.get(&number) {
+                    if report.is_some() || now - merged_at > 120 {
+                        merged_reports.insert(key, report.clone().unwrap_or(Value::Null));
+                    }
+                }
             }
         }
         if token.is_some() {
             if let Ok(items) = &open_pulls {
                 let now = Utc::now().timestamp();
-                let mut persisted = app.persisted.write().await;
-                let mut cache = persisted["openPrReports"]
+                let mut cache = app.persisted.read().await["openPrReports"]
                     .as_object()
                     .cloned()
                     .unwrap_or_default();
+                let mut pending = Vec::new();
+                let rate_remaining = GITHUB_RATE_REMAINING.load(Ordering::Relaxed);
                 for pull in items
                     .as_array()
                     .into_iter()
@@ -574,16 +893,33 @@ async fn collect(app: AppState) {
                     {
                         cache[&key].clone()
                     } else {
-                        let report = fetch_report(&app.client, &repo, number, token.as_deref())
-                            .await
-                            .ok()
-                            .flatten()
-                            .unwrap_or(Value::Null);
-                        json!({"at":now,"report":report})
+                        if let Some(entry) = cache.get(&key) {
+                            open_report_values.insert(key.clone(), entry["report"].clone());
+                        }
+                        if rate_remaining < 0 || rate_remaining >= 50 {
+                            pending.push(number);
+                        }
+                        continue;
                     };
                     open_report_values.insert(key.clone(), entry["report"].clone());
-                    cache.insert(key, entry);
                 }
+                let fetched = fetch_reports_concurrently(
+                    &app.client,
+                    &repo,
+                    pending.iter().copied().collect::<Vec<_>>(),
+                    token.as_deref(),
+                )
+                .await;
+                for number in pending {
+                    let key = number.to_string();
+                    if let Some(Ok(report)) = fetched.get(&number) {
+                        let entry =
+                            json!({"at":now,"report":report.clone().unwrap_or(Value::Null)});
+                        open_report_values.insert(key.clone(), entry["report"].clone());
+                        cache.insert(key, entry);
+                    }
+                }
+                let mut persisted = app.persisted.write().await;
                 persisted["openPrReports"] = Value::Object(cache);
             }
         }
@@ -609,6 +945,8 @@ async fn collect(app: AppState) {
             }
             persisted["prReports"] = Value::Object(cache);
         }
+        let mut persist_bytes = None;
+        let search_ok = open_count.is_ok() && week_count.is_ok() && day_count.is_ok();
         {
             let mut state = app.data.write().await;
             let now = Utc::now().to_rfc3339();
@@ -710,20 +1048,15 @@ async fn collect(app: AppState) {
                     }
                     insert_events(&mut persisted, changes);
                 }
-                let mut movers:Vec<Value>=summaries.iter().filter_map(|g|{
+                let mut movers:Vec<Value>=reference.as_ref().map(|reference|summaries.iter().filter_map(|g|{
                     let name=g["name"].as_str()?;
-                    let before=reference.as_ref().and_then(|r|r["libraries"][name][0].as_i64()).unwrap_or(0);
+                    let before=reference["libraries"][name][0].as_i64().unwrap_or(0);
                     let gained=g["done"].as_i64().unwrap_or(0)-before;
-                    (gained>0).then(||json!({"name":name,"gained":gained,"done":g["done"],"total":g["total"]}))
-                }).collect();
+                    (gained>0).then(||json!({"name":g["name"],"label":g["label"],"done":g["done"],"total":g["total"],"gained":gained}))
+                }).collect()).unwrap_or_default();
                 movers.sort_by_key(|m| -m["gained"].as_i64().unwrap_or(0));
                 movers.truncate(8);
-                let temporary = app.data_file.with_extension("json.tmp");
-                if let Ok(bytes) = serde_json::to_vec(&*persisted) {
-                    if fs::write(&temporary, bytes).await.is_ok() {
-                        let _ = fs::rename(&temporary, &app.data_file).await;
-                    }
-                }
+                persist_bytes = serde_json::to_vec(&*persisted).ok();
                 let current_events = persisted["events"].clone();
                 drop(persisted);
                 let mut all = summaries.clone();
@@ -823,6 +1156,13 @@ async fn collect(app: AppState) {
                 authors.truncate(8);
                 state["github"]["topAuthors"] = json!(authors);
             }
+            if search_ok {
+                state["sources"]["search"] = json!({"ok":true,"at":now});
+            } else {
+                let at = state["sources"]["search"]["at"].clone();
+                state["sources"]["search"] =
+                    json!({"ok":false,"at":at,"error":"GitHub search unavailable"});
+            }
             if let Ok(release) = release {
                 state["github"]["release"] =
                     json!({"tag":release["tag_name"],"publishedAt":release["published_at"]});
@@ -850,6 +1190,12 @@ async fn collect(app: AppState) {
             );
             state["updatedAt"] = json!(now);
         }
+        if let Some(bytes) = persist_bytes {
+            let temporary = app.data_file.with_extension("json.tmp");
+            if fs::write(&temporary, bytes).await.is_ok() {
+                let _ = fs::rename(temporary, &app.data_file).await;
+            }
+        }
         // Authenticated activity cards refresh at upstream's two minute cadence;
         // the remaining GitHub API work shares this loop and stays within quota.
         tokio::time::sleep(Duration::from_secs(if token.is_some() { 120 } else { 600 })).await;
@@ -857,8 +1203,11 @@ async fn collect(app: AppState) {
 }
 
 async fn save_persisted(app: &AppState) {
-    let persisted = app.persisted.read().await;
-    if let Ok(bytes) = serde_json::to_vec(&*persisted) {
+    let bytes = {
+        let persisted = app.persisted.read().await;
+        serde_json::to_vec(&*persisted)
+    };
+    if let Ok(bytes) = bytes {
         let temporary = app.data_file.with_extension("json.tmp");
         if fs::write(&temporary, bytes).await.is_ok() {
             let _ = fs::rename(temporary, &app.data_file).await;
@@ -875,16 +1224,20 @@ async fn answer_chat_messages(
     let now = Utc::now().timestamp_millis();
     asked.retain(|_, at| now - *at < 30_000);
     let threads = app.threads.read().await.clone();
-    let snapshot = app.data.read().await.clone();
-    let libraries = snapshot["libraries"]["all"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let progress = snapshot["progress"].clone();
-    let top = snapshot["github"]["topAuthors"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let (libraries, progress, top) = {
+        let data = app.data.read().await;
+        (
+            data["libraries"]["all"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+            data["progress"].clone(),
+            data["github"]["topAuthors"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        )
+    };
     let mut answers = Vec::new();
     for message in messages {
         if answers.len() >= 3 || message.kind != 1 || asked.contains_key(&message.author_id) {
@@ -1222,7 +1575,8 @@ async fn main() -> Result<()> {
     }
     let data = Arc::new(RwLock::new(json!({
         "updatedAt": started, "startedAt": started, "sources": {}, "progress": null, "history": [],
-        "libraries": null, "github": null,
+        "libraries": null,
+        "github": {"openPrs":null,"merged24h":null,"merged7d":null,"mergedPrs":[],"openedPrs":[],"topAuthors":[],"release":null,"rateRemaining":null,"authenticated":env::var("GITHUB_TOKEN").is_ok_and(|x|!x.is_empty())},
         "games": null, "events": [],
         "youtube": {"likes": null, "viewers": null, "shorts": env::var("YOUTUBE_REFRESH_TOKEN").is_ok_and(|x| !x.is_empty())},
         "chat": {"enabled": env::var("CHAT_COMMANDS").as_deref() == Ok("1") && env::var("YOUTUBE_API_KEY").is_ok_and(|x| !x.is_empty()) && env::var("YOUTUBE_VIDEO_ID").is_ok_and(|x| !x.is_empty()), "answers": []}
@@ -1239,7 +1593,8 @@ async fn main() -> Result<()> {
             .default_headers(headers)
             .timeout(Duration::from_secs(60))
             .build()?,
-        threads: Arc::new(RwLock::new(Vec::new())),
+        threads: Arc::new(RwLock::new(Arc::new(Vec::new()))),
+        covers: Arc::new(RwLock::new(HashMap::new())),
         live_chat_id: Arc::new(RwLock::new(None)),
     };
     tokio::spawn(collect(app.clone()));
@@ -1252,10 +1607,22 @@ async fn main() -> Result<()> {
     tokio::spawn({
         let client = app.client.clone();
         let data = app.data.clone();
-        let threads = app.threads.clone();
+        let covers = app.covers.clone();
         async move {
             loop {
-                collect_games(&client, data.clone(), threads.clone()).await;
+                collect_covers(&client, data.clone(), covers.clone()).await;
+                tokio::time::sleep(Duration::from_secs(180)).await;
+            }
+        }
+    });
+    tokio::spawn({
+        let client = app.client.clone();
+        let data = app.data.clone();
+        let threads = app.threads.clone();
+        let covers = app.covers.clone();
+        async move {
+            loop {
+                collect_games(&client, data.clone(), threads.clone(), covers.clone()).await;
                 tokio::time::sleep(Duration::from_secs(600)).await;
             }
         }
@@ -1286,6 +1653,7 @@ async fn main() -> Result<()> {
         .route("/api/short-meta", get(short_meta))
         .route("/healthz", get(health))
         .fallback_service(ServeDir::new(public))
+        .layer(middleware::from_fn(cache_policy))
         .with_state(app);
     let port = env::var("PORT")
         .unwrap_or_else(|_| "8080".into())
@@ -1298,8 +1666,15 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{game_stage, report_counts, serialize_state};
+    use super::{
+        AppState, apply_cache_policy, game_stage, publish_core_progress, report_counts,
+        serialize_state,
+    };
+    use axum::{body::Body, http::StatusCode, response::Response};
+    use chrono::Utc;
     use serde_json::{Value, json};
+    use std::{collections::HashMap, path::PathBuf, sync::Arc};
+    use tokio::sync::RwLock;
 
     #[test]
     fn game_stage_rules_reuse_match_behavior() {
@@ -1333,5 +1708,87 @@ mod tests {
         let mut expected = data;
         expected["serverTime"] = json!("current");
         assert_eq!(serialized, expected);
+    }
+
+    #[test]
+    fn cache_headers_match_the_original_dynamic_and_static_routes() {
+        let mut api = Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "application/json")
+            .body(Body::empty())
+            .unwrap();
+        apply_cache_policy("/api/state", &mut api);
+        assert_eq!(api.headers()["cache-control"], "no-store");
+        assert_eq!(
+            api.headers()["content-type"],
+            "application/json; charset=utf-8"
+        );
+
+        let mut asset = Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .unwrap();
+        apply_cache_policy("/styles.css", &mut asset);
+        assert_eq!(asset.headers()["cache-control"], "no-cache");
+
+        let mut html = Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .unwrap();
+        apply_cache_policy("/index.html", &mut html);
+        assert_eq!(html.headers()["content-type"], "text/html; charset=utf-8");
+
+        let mut health = Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .unwrap();
+        apply_cache_policy("/healthz", &mut health);
+        assert!(!health.headers().contains_key("cache-control"));
+    }
+
+    #[tokio::test]
+    async fn readiness_snapshot_contains_the_complete_progress_contract() {
+        let today = Utc::now().date_naive();
+        let yesterday = (today - chrono::Days::new(1)).to_string();
+        let week_ago = (today - chrono::Days::new(7)).to_string();
+        let data = Arc::new(RwLock::new(json!({
+            "progress": null, "libraries": null, "history": [], "events": [], "sources": {}
+        })));
+        let app = AppState {
+            data: data.clone(),
+            persisted: Arc::new(RwLock::new(json!({
+                "snapshots":[{"date":yesterday,"libraries":{"A":[8,14],"B":[18,20]}}],
+                "events":[],"prReports":{},"openPrReports":{},"releaseTag":null,
+                "chatUnits":null,"chatReminderAt":null
+            }))),
+            data_file: PathBuf::new(),
+            client: reqwest::Client::new(),
+            threads: Arc::new(RwLock::new(Arc::new(Vec::new()))),
+            covers: Arc::new(RwLock::new(HashMap::new())),
+            live_chat_id: Arc::new(RwLock::new(None)),
+        };
+        let progress: super::Result<Value> = Ok(json!({
+            "libraries":{"done":100,"total":200,"percent":50.0,"groups":[
+                {"name":"A","label":"Alpha","done":10,"todo":5},
+                {"name":"B","label":"Beta","done":20,"todo":0}
+            ]},
+            "shaders":{"done":3,"total":6,"percent":50.0}
+        }));
+        let history: super::Result<Value> = Ok(json!([
+            {"date":week_ago,"commit":"old","libraries":{"done":70,"total":150,"percent":46.67},"shaders":{"done":2,"total":6}},
+            {"date":yesterday,"commit":"recent","libraries":{"done":90,"total":180,"percent":50.0},"shaders":{"done":3,"total":6}}
+        ]));
+
+        publish_core_progress(&app, &progress, &history).await;
+        let state = data.read().await;
+        assert_eq!(state["progress"]["day"]["done"], 10);
+        assert_eq!(state["progress"]["week"]["done"], 30);
+        assert_eq!(state["libraries"]["count"], 2);
+        assert_eq!(state["libraries"]["all"][0]["name"], "B");
+        assert_eq!(state["libraries"]["movers"].as_array().unwrap().len(), 2);
+        assert_eq!(state["libraries"]["movers"][0]["label"], "Alpha");
+        assert!(state["libraries"]["movers"][0].get("todo").is_none());
+        assert_eq!(state["sources"]["progress"]["ok"], true);
+        assert_eq!(state["sources"]["history"]["ok"], true);
     }
 }

@@ -10,28 +10,28 @@ Encode runs use the same generated 440 Hz, 44.1 kHz stereo WAV track for both im
 
 | Measure | Upstream Node + FFmpeg | Rust + GStreamer | Change |
 |---|---:|---:|---:|
-| Container image | 1,596.3 MiB | 1,429.1 MiB | 10.5% smaller |
-| Encode job wall time | 34.22 s | 34.01 s | 0.61% faster |
-| Cgroup CPU time | 13.36 s | 8.11 s | 39.3% lower |
-| Peak cgroup memory | 1,689.8 MiB | 741.1 MiB | 56.1% lower |
+| Container image | 1,596.3 MiB | 1,429.3 MiB | 10.5% smaller |
+| Encode job wall time | 34.72 s | 31.52 s | 9.2% faster |
+| Cgroup CPU time | 19.81 s | 10.00 s | 49.5% lower |
+| Peak cgroup memory | 1,676.4 MiB | 811.9 MiB | 51.6% lower |
 | Encoded MP4 size | 21.42 MiB | 21.41 MiB | 0.05% smaller |
 | Output frames | 450 / 30 fps | 450 / 30 fps | Same |
 
-Individual wall times were 34.07, 33.92, and 34.26 seconds for upstream and 33.92, 33.95, and 34.10 seconds for Rust. CPU time and peak memory are cgroup counters, not sampled `docker stats` estimates. The Rust encoder now sizes its x264 worker pool from the container's available parallelism.
+Individual wall times were 34.88, 34.72, and 33.95 seconds for upstream and 31.32, 31.88, and 31.52 seconds for Rust. CPU time and peak memory are cgroup counters, not sampled `docker stats` estimates. The Rust encoder now sizes its x264 worker pool from the container's available parallelism.
 
 ## Dashboard and idle footprint
 
-The dashboard pass used the same images on the same host. Readiness is measured once per implementation; API latency uses 5 warm-ups and 40 timed `/api/state` requests.
+The dashboard pass used the same images on the same host. Figures below are medians across four paired passes (the dashboard pass from the full benchmark plus three additional passes); each pass measured readiness once per image and API latency over 40 timed `/api/state` requests after 5 warm-ups.
 
 | Measure | Upstream Node + FFmpeg | Rust + GStreamer | Change |
 |---|---:|---:|---:|
-| Health-ready time | 0.902 s | 1.426 s | 0.524 s slower |
-| Idle memory | 102.8 MiB | 17.66 MiB | 82.8% lower |
-| `/api/state` median | 1.16 ms | 0.98 ms | 15.5% lower |
-| `/api/state` p95 | 1.52 ms | 1.17 ms | 23.0% lower |
-| `/api/state` response | 41,410 bytes | 42,273 bytes | 2.1% larger |
+| Health-ready time | 0.852 s | 0.449 s | 47.3% faster |
+| Idle memory | 65.39 MiB | 61.59 MiB | 5.8% lower |
+| `/api/state` median | 1.60 ms | 0.77 ms | 51.9% lower |
+| `/api/state` p95 | 2.13 ms | 1.02 ms | 52.2% lower |
+| `/api/state` response | 41,410 bytes | 42,012 bytes | 1.5% larger |
 
-The readiness measurement is a remaining regression and is included explicitly. API timings are short local requests and do not predict remote network latency.
+The measured API response was 1.5% larger; serialized content includes dynamic source metadata and timestamps. Idle-memory samples varied substantially between repeat runs, so the median is shown and should not be read as a tight bound. API timings are short local requests and do not predict remote network latency.
 
 ## Dashboard hot-path refactor
 

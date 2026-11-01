@@ -122,26 +122,30 @@ const STAGES: [&str; 5] = [
 ];
 const DISCORD: &str = "discord.gg/BHFztBPUe";
 pub const CHAT_REMINDER: &str = "💬 Ask the stream: !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
-const ROMAN: [(&str, &str); 15] = [
-    ("xvi", "16"),
-    ("xv", "15"),
-    ("xiv", "14"),
-    ("xiii", "13"),
-    ("xii", "12"),
-    ("xi", "11"),
-    ("x", "10"),
-    ("ix", "9"),
-    ("viii", "8"),
-    ("vii", "7"),
-    ("vi", "6"),
-    ("v", "5"),
-    ("iv", "4"),
-    ("iii", "3"),
-    ("ii", "2"),
-];
 static COMMAND_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^!(game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap()
 });
+
+fn roman_digit(word: &str) -> &str {
+    match word {
+        "xvi" => "16",
+        "xv" => "15",
+        "xiv" => "14",
+        "xiii" => "13",
+        "xii" => "12",
+        "xi" => "11",
+        "x" => "10",
+        "ix" => "9",
+        "viii" => "8",
+        "vii" => "7",
+        "vi" => "6",
+        "v" => "5",
+        "iv" => "4",
+        "iii" => "3",
+        "ii" => "2",
+        _ => word,
+    }
+}
 
 fn normalize(text: &str) -> String {
     let lower = text.to_lowercase().replace(['\'', '’'], "");
@@ -156,16 +160,15 @@ fn normalize(text: &str) -> String {
             space = true;
         }
     }
-    out.trim()
-        .split_whitespace()
-        .map(|word| {
-            ROMAN
-                .iter()
-                .find_map(|(roman, digit)| (*roman == word).then_some(*digit))
-                .unwrap_or(word)
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let words = out.trim();
+    let mut normalized = String::with_capacity(words.len());
+    for word in words.split_whitespace() {
+        if !normalized.is_empty() {
+            normalized.push(' ');
+        }
+        normalized.push_str(roman_digit(word));
+    }
+    normalized
 }
 fn words(text: &str) -> Vec<String> {
     normalize(text)
@@ -642,6 +645,12 @@ mod tests {
         ] {
             assert_eq!(ask_games(query)["title"], title, "{query}");
         }
+    }
+    #[test]
+    fn roman_numerals_are_replaced_only_as_whole_words() {
+        assert_eq!(normalize("Final Fantasy XVI"), "final fantasy 16");
+        assert_eq!(normalize("Mix V"), "mix 5");
+        assert_eq!(normalize("Resident Evil IV"), "resident evil 4");
     }
     #[test]
     fn gta_six_fallback_yields_to_a_real_thread() {
