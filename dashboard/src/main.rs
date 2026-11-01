@@ -160,6 +160,13 @@ async fn health(State(app): State<AppState>) -> (axum::http::StatusCode, &'stati
     }
 }
 
+async fn mark_source_error(data: &Arc<RwLock<Value>>, source: &str, error: &str) {
+    let mut state = data.write().await;
+    let at = state["sources"][source]["at"].clone();
+    state["sources"][source] = json!({"ok":false,"at":at,"error":error});
+    state["updatedAt"] = json!(Utc::now().to_rfc3339());
+}
+
 fn apply_cache_policy(path: &str, response: &mut axum::response::Response) {
     if matches!(path, "/api/state" | "/api/chat" | "/api/short-meta") {
         response.headers_mut().insert(
@@ -438,8 +445,7 @@ async fn collect_games(
     )
     .await;
     if let Err(error) = &category {
-        data.write().await["sources"]["games"] =
-            json!({"ok":false,"at":null,"error":error.to_string()});
+        mark_source_error(&data, "games", &error.to_string()).await;
         return;
     }
     let category_id = category.ok().and_then(|v| {
@@ -448,8 +454,12 @@ async fn collect_games(
             .map(str::to_owned)
     });
     let Some(category_id) = category_id else {
-        data.write().await["sources"]["games"] =
-            json!({"ok":false,"at":null,"error":"Game bring-up discussion category not found"});
+        mark_source_error(
+            &data,
+            "games",
+            "Game bring-up discussion category not found",
+        )
+        .await;
         return;
     };
     let mut discussions = Vec::new();
@@ -465,8 +475,7 @@ async fn collect_games(
         {
             Ok(v) => v,
             Err(error) => {
-                data.write().await["sources"]["games"] =
-                    json!({"ok":false,"at":null,"error":error.to_string()});
+                mark_source_error(&data, "games", &error.to_string()).await;
                 return;
             }
         };
@@ -518,7 +527,9 @@ async fn collect_games(
     *all_threads.write().await = threads;
     let mut state = data.write().await;
     state["games"] = games;
-    state["sources"]["games"] = json!({"ok":true,"at":now.to_rfc3339()});
+    let at = now.to_rfc3339();
+    state["sources"]["games"] = json!({"ok":true,"at":at});
+    state["updatedAt"] = json!(at);
 }
 
 async fn collect_covers(
@@ -555,13 +566,11 @@ async fn collect_covers(
             }
             *covers.write().await = entries;
             let mut state = data.write().await;
-            state["sources"]["covers"] = json!({"ok":true,"at":Utc::now().to_rfc3339()});
+            let at = Utc::now().to_rfc3339();
+            state["sources"]["covers"] = json!({"ok":true,"at":at});
+            state["updatedAt"] = json!(at);
         }
-        Err(error) => {
-            let mut state = data.write().await;
-            let at = state["sources"]["covers"]["at"].clone();
-            state["sources"]["covers"] = json!({"ok":false,"at":at,"error":error.to_string()});
-        }
+        Err(error) => mark_source_error(&data, "covers", &error.to_string()).await,
     }
 }
 
