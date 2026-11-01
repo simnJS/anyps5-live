@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use prost::Message;
 use serde_json::{Value, json};
+use std::sync::LazyLock;
 use tonic::{
     Request,
     transport::{Channel, ClientTlsConfig},
@@ -138,6 +139,9 @@ const ROMAN: [(&str, &str); 15] = [
     ("iii", "3"),
     ("ii", "2"),
 ];
+static COMMAND_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)^!(game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap()
+});
 
 fn normalize(text: &str) -> String {
     let lower = text.to_lowercase().replace(['\'', '’'], "");
@@ -152,12 +156,16 @@ fn normalize(text: &str) -> String {
             space = true;
         }
     }
-    let mut normalized = out.trim().to_owned();
-    for (roman, digit) in ROMAN {
-        let re = regex::Regex::new(&format!(r"\b{roman}\b")).unwrap();
-        normalized = re.replace_all(&normalized, digit).into_owned();
-    }
-    normalized
+    out.trim()
+        .split_whitespace()
+        .map(|word| {
+            ROMAN
+                .iter()
+                .find_map(|(roman, digit)| (*roman == word).then_some(*digit))
+                .unwrap_or(word)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 fn words(text: &str) -> Vec<String> {
     normalize(text)
@@ -334,8 +342,7 @@ fn answer(
     progress: &Value,
     top: &[Value],
 ) -> Option<Value> {
-    let re = regex::Regex::new(r"(?i)^!(game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap();
-    let caps = re.captures(text.trim())?;
+    let caps = COMMAND_RE.captures(text.trim())?;
     let command = caps[1].to_lowercase();
     let query = caps
         .get(2)

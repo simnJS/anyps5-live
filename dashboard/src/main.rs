@@ -1,9 +1,10 @@
 use anyhow::Result;
-use axum::{Json, Router, extract::State, routing::get};
+use axum::{Json, Router, extract::State, response::IntoResponse, routing::get};
 use chrono::{DateTime, Utc};
 mod chat;
 use regex::Regex;
 use reqwest::Client;
+use serde::{Serialize, Serializer, ser::SerializeMap};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -11,7 +12,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, LazyLock,
         atomic::{AtomicI64, Ordering},
     },
     time::Duration,
@@ -20,6 +21,67 @@ use tokio::{fs, sync::RwLock};
 use tower_http::services::ServeDir;
 
 static GITHUB_RATE_REMAINING: AtomicI64 = AtomicI64::new(-1);
+static IMPLEMENTED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([+−-]\s?\d[\d\s]*) implemented functions?").unwrap());
+static DECLARED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([+−-]\s?\d[\d\s]*) declared functions?").unwrap());
+static GAME_STAGE_HEADER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^#{2,3} Furthest point\s*\n+(.+)$").unwrap());
+static GAME_STAGE_RULES: LazyLock<[(Regex, usize); 5]> = LazyLock::new(|| {
+    [
+        (
+            Regex::new(r"\bin[- ]game\b|\bgameplay\b|\bplayable\b").unwrap(),
+            4,
+        ),
+        (Regex::new(r"\bmenus?\b").unwrap(), 3),
+        (
+            Regex::new(r"\blogos?\b|loading screen|boot screens?").unwrap(),
+            2,
+        ),
+        (
+            Regex::new(r"before the first|^boots? \(?stops|^none\b").unwrap(),
+            1,
+        ),
+        (Regex::new(r"does not convert").unwrap(), 0),
+    ]
+});
+static GAME_ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Z]{4}\d{5}").unwrap());
+static ROCKSTAR_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgta\b|red dead").unwrap());
+
+struct CurrentState<'a> {
+    data: &'a Value,
+    server_time: &'a str,
+}
+
+// Add the per-request timestamp without cloning the full dashboard JSON tree.
+impl Serialize for CurrentState<'_> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let Some(data) = self.data.as_object() else {
+            return Err(serde::ser::Error::custom(
+                "dashboard state must be an object",
+            ));
+        };
+        let extra = usize::from(!data.contains_key("serverTime"));
+        let mut map = serializer.serialize_map(Some(data.len() + extra))?;
+        for (key, value) in data {
+            if key != "serverTime" {
+                map.serialize_entry(key, value)?;
+            }
+        }
+        map.serialize_entry("serverTime", self.server_time)?;
+        map.end()
+    }
+}
+
+fn serialize_state(
+    data: &Value,
+    server_time: &str,
+) -> std::result::Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&CurrentState { data, server_time })
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -31,10 +93,25 @@ struct AppState {
     live_chat_id: Arc<RwLock<Option<String>>>,
 }
 
-async fn state(State(app): State<AppState>) -> Json<Value> {
-    let mut data = app.data.read().await.clone();
-    data["serverTime"] = json!(Utc::now().to_rfc3339());
-    Json(data)
+async fn state(State(app): State<AppState>) -> axum::response::Response {
+    // Keep the snapshot read-only while serializing its response bytes.
+    let data = app.data.read().await;
+    let server_time = Utc::now().to_rfc3339();
+    match serialize_state(&data, &server_time) {
+        Ok(body) => {
+            let mut response = axum::response::Response::new(axum::body::Body::from(body));
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/json"),
+            );
+            response
+        }
+        Err(error) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            error.to_string(),
+        )
+            .into_response(),
+    }
 }
 
 async fn chat_state(State(app): State<AppState>) -> Json<Value> {
@@ -97,8 +174,7 @@ async fn fetch_json(client: &Client, url: &str, token: Option<&str>) -> Result<V
 }
 
 fn report_counts(body: &str) -> Value {
-    let read = |kind: &str| {
-        let pattern = Regex::new(&format!(r"([+−-]\s?\d[\d\s]*) {kind} functions?")).ok()?;
+    let read = |pattern: &Regex| {
         let value = pattern
             .captures(body)?
             .get(1)?
@@ -107,7 +183,7 @@ fn report_counts(body: &str) -> Value {
             .replace(['+', ' '], "");
         value.parse::<i64>().ok()
     };
-    json!({"implemented":read("implemented").unwrap_or(0),"declared":read("declared").unwrap_or(0)})
+    json!({"implemented":read(&IMPLEMENTED_RE).unwrap_or(0),"declared":read(&DECLARED_RE).unwrap_or(0)})
 }
 
 async fn fetch_report(
@@ -204,8 +280,7 @@ const CATEGORY_QUERY: &str = "query($owner:String!,$name:String!,$slug:String!){
 const THREADS_QUERY: &str = "query($owner:String!,$name:String!,$category:ID!,$after:String){repository(owner:$owner,name:$name){discussions(first:100,after:$after,categoryId:$category,orderBy:{field:UPDATED_AT,direction:DESC}){pageInfo{endCursor hasNextPage}nodes{number title body createdAt updatedAt comments{totalCount}}}}}";
 
 fn game_stage(body: &str) -> Option<usize> {
-    let header = Regex::new(r"(?m)^#{2,3} Furthest point\s*\n+(.+)$").ok()?;
-    let answer = header
+    let answer = GAME_STAGE_HEADER_RE
         .captures(body)?
         .get(1)?
         .as_str()
@@ -215,21 +290,9 @@ fn game_stage(body: &str) -> Option<usize> {
     if answer.starts_with("- [") {
         return None;
     }
-    let rules = [
-        (r"\bin[- ]game\b|\bgameplay\b|\bplayable\b", 4),
-        (r"\bmenus?\b", 3),
-        (r"\blogos?\b|loading screen|boot screens?", 2),
-        (r"before the first|^boots? \(?stops|^none\b", 1),
-        (r"does not convert", 0),
-    ];
-    rules
+    GAME_STAGE_RULES
         .iter()
-        .filter_map(|(pattern, stage)| {
-            Regex::new(pattern)
-                .ok()?
-                .find(&answer)
-                .map(|m| (m.start(), *stage))
-        })
+        .filter_map(|(pattern, stage)| pattern.find(&answer).map(|m| (m.start(), *stage)))
         .min_by_key(|x| x.0)
         .map(|x| x.1)
 }
@@ -340,10 +403,9 @@ async fn collect_games(
         }
         after = connection["pageInfo"]["endCursor"].clone();
     }
-    let id_re = Regex::new(r"[A-Z]{4}\d{5}").unwrap();
     let threads: Vec<Value> = discussions.iter().map(|d| {
         let title = d["title"].as_str().unwrap_or_default();
-        let id = id_re.find(title).map(|m| m.as_str());
+        let id = GAME_ID_RE.find(title).map(|m| m.as_str());
         let game_name = id.map(|id| title[..title.find(id).unwrap_or(0)].trim_end_matches([' ', '(', '—', '–', ':', '-']).to_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| title.to_owned());
         let stage = game_stage(d["body"].as_str().unwrap_or_default()).map(|i| GAME_STAGES[i]);
         json!({"number":d["number"],"name":game_name,"titleId":id,"stage":stage,"replies":d["comments"]["totalCount"],"createdAt":d["createdAt"],"updatedAt":d["updatedAt"],"cover":id.and_then(|id| covers.get(id))})
@@ -370,8 +432,7 @@ async fn collect_games(
         .iter()
         .filter(|t| {
             let name = t["name"].as_str().unwrap_or("").to_lowercase();
-            name.contains("grand theft auto")
-                || Regex::new(r"\bgta\b|red dead").unwrap().is_match(&name)
+            name.contains("grand theft auto") || ROCKSTAR_RE.is_match(&name)
         })
         .cloned()
         .collect();
@@ -1233,4 +1294,44 @@ async fn main() -> Result<()> {
     println!("AnyPS5 Rust dashboard on http://localhost:{port}");
     axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{game_stage, report_counts, serialize_state};
+    use serde_json::{Value, json};
+
+    #[test]
+    fn game_stage_rules_reuse_match_behavior() {
+        for (answer, expected) in [
+            ("Does not convert", Some(0)),
+            ("Before the first frame", Some(1)),
+            ("Stops before first frame", None),
+            ("Logos", Some(2)),
+            ("Menu", Some(3)),
+            ("Playable", Some(4)),
+            ("- [x] In game", None),
+        ] {
+            let body = format!("## Furthest point\n\n{answer}");
+            assert_eq!(game_stage(&body), expected, "{answer}");
+        }
+    }
+
+    #[test]
+    fn report_count_patterns_preserve_signed_and_spaced_numbers() {
+        let counts = report_counts("+1 234 implemented functions, −56 declared function");
+        assert_eq!(counts["implemented"], 1234);
+        assert_eq!(counts["declared"], -56);
+        assert_eq!(report_counts("no counts here")["implemented"], 0);
+    }
+
+    #[test]
+    fn state_serialization_matches_the_owned_json_response() {
+        let data = json!({"a": 1, "nested": {"ready": true}, "serverTime": "stale"});
+        let serialized: Value =
+            serde_json::from_slice(&serialize_state(&data, "current").unwrap()).unwrap();
+        let mut expected = data;
+        expected["serverTime"] = json!("current");
+        assert_eq!(serialized, expected);
+    }
 }

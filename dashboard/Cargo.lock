@@ -38,6 +38,7 @@ dependencies = [
  "prost",
  "regex",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tonic",
