@@ -1,37 +1,46 @@
 # Single-container image: the dashboard and the streamer in one container, for platforms that
 # build one Dockerfile and run one service. docker-compose.yml runs them as two containers instead.
-FROM node:22-bookworm-slim AS build
-WORKDIR /app
-COPY dashboard/package.json dashboard/package-lock.json dashboard/tsconfig.json ./
-RUN npm ci --no-audit --no-fund
-COPY dashboard/src ./src
-RUN npx tsc -p tsconfig.json
+FROM rust:1-bookworm AS build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY dashboard/Cargo.toml ./dashboard/Cargo.toml
+COPY dashboard/Cargo.lock ./dashboard/Cargo.lock
+COPY dashboard/src ./dashboard/src
+RUN cargo build --release --manifest-path dashboard/Cargo.toml
+COPY streamer/Cargo.toml ./streamer/Cargo.toml
+COPY streamer/Cargo.lock ./streamer/Cargo.lock
+COPY streamer/src ./streamer/src
+RUN cargo build --release --manifest-path streamer/Cargo.toml
 
-FROM node:22-bookworm-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      chromium xvfb x11-utils ffmpeg \
+      chromium xvfb x11-utils \
       fonts-inter fonts-noto-color-emoji fonts-dejavu-core \
-      ca-certificates curl tini \
+      ca-certificates curl tini util-linux \
+      libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+      gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY dashboard/package.json dashboard/package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
-COPY --from=build /app/dist ./dist
+COPY --from=build /build/dashboard/target/release/anyps5-live-dashboard /usr/local/bin/dashboard
+COPY --from=build /build/streamer/target/release/anyps5-live-streamer /usr/local/bin/anyps5-live-streamer
 COPY dashboard/public ./public
-COPY dashboard/proto ./proto
 COPY streamer/entrypoint.sh /usr/local/bin/streamer.sh
 COPY streamer/shorts.sh /usr/local/bin/shorts.sh
 COPY start.sh /usr/local/bin/start.sh
 RUN chmod 0755 /usr/local/bin/streamer.sh /usr/local/bin/shorts.sh /usr/local/bin/start.sh \
  && mkdir -p /data /music /recordings \
- && chown node:node /data /recordings
+ && useradd --create-home --uid 1000 app \
+ && chown app:app /data /recordings
 
-ENV NODE_ENV=production \
-    DATA_DIR=/data \
+ENV DATA_DIR=/data \
     PORT=3000 \
+    PUBLIC_DIR=/app/public \
     WIDTH=2560 \
     HEIGHT=1440 \
     FPS=30 \
@@ -40,6 +49,7 @@ ENV NODE_ENV=production \
     BUFSIZE=24000k \
     AUDIO_BITRATE=128k \
     PRESET=superfast \
+    WARMUP_SECONDS=15 \
     BROWSER_RESTART_HOURS=24
 
 VOLUME /data

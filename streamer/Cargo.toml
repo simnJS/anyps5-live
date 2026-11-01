@@ -1,0 +1,13 @@
+[package]
+name = "anyps5-live-streamer"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+gstreamer = "0.23"
+gstreamer-app = "0.23"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+url = "2"
