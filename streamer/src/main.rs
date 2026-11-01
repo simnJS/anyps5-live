@@ -143,6 +143,11 @@ fn pipeline(output: &str, short: bool, seconds: Option<u64>) -> String {
     let encoder_threads = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(0);
+    let frame_rate_conversion = if capture.parse::<u32>().ok() != fps.parse::<u32>().ok() {
+        "videorate ! "
+    } else {
+        ""
+    };
     let frame_limit = seconds.map_or_else(String::new, |seconds| {
         format!(
             " num-buffers={}",
@@ -162,7 +167,7 @@ fn pipeline(output: &str, short: bool, seconds: Option<u64>) -> String {
     let display = if short { ":98.0" } else { ":99.0" };
     let video = format!(
         "ximagesrc name=video_source display-name={display} use-damage=false show-pointer=false{frame_limit} ! video/x-raw,framerate={capture}/1 ! \
-         videoconvert ! videoscale ! video/x-raw,width={width},height={height},format=I420,framerate={fps}/1,colorimetry=bt709 ! \
+         {frame_rate_conversion}videoconvert n-threads={encoder_threads} ! video/x-raw,width={width},height={height},format=I420,framerate={fps}/1,colorimetry=bt709 ! \
          x264enc name=video_encoder speed-preset={preset} threads={encoder_threads} {rate_control} key-int-max={gop} bframes=3 rc-lookahead=0 ! h264parse name=video_parser config-interval=-1 ! queue name=video_queue max-size-time=10000000000 max-size-bytes=0 max-size-buffers=0 ! mux."
     );
     let audio = if music_tracks().is_empty() {

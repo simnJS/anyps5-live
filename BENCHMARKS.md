@@ -11,13 +11,13 @@ Encode runs use the same generated 440 Hz, 44.1 kHz stereo WAV track for both im
 | Measure | Upstream Node + FFmpeg | Rust + GStreamer | Change |
 |---|---:|---:|---:|
 | Container image | 1,596.3 MiB | 1,429.3 MiB | 10.5% smaller |
-| Encode job wall time | 34.72 s | 31.52 s | 9.2% faster |
-| Cgroup CPU time | 19.81 s | 10.00 s | 49.5% lower |
-| Peak cgroup memory | 1,676.4 MiB | 811.9 MiB | 51.6% lower |
+| Encode job wall time | 34.10 s | 31.58 s | 7.4% faster |
+| Cgroup CPU time | 14.01 s | 9.58 s | 31.6% lower |
+| Peak cgroup memory | 1,678.2 MiB | 800.0 MiB | 52.3% lower |
 | Encoded MP4 size | 21.42 MiB | 21.41 MiB | 0.05% smaller |
 | Output frames | 450 / 30 fps | 450 / 30 fps | Same |
 
-Individual wall times were 34.88, 34.72, and 33.95 seconds for upstream and 31.32, 31.88, and 31.52 seconds for Rust. CPU time and peak memory are cgroup counters, not sampled `docker stats` estimates. The Rust encoder now sizes its x264 worker pool from the container's available parallelism.
+Individual wall times were 33.99, 35.02, and 34.10 seconds for upstream and 31.58, 31.64, and 31.58 seconds for Rust. CPU time and peak memory are cgroup counters, not sampled `docker stats` estimates. The Rust encoder now sizes its x264 worker pool from the container's available parallelism.
 
 ## Dashboard and idle footprint
 
@@ -32,6 +32,12 @@ The dashboard pass used the same images on the same host. Figures below are medi
 | `/api/state` response | 41,410 bytes | 42,012 bytes | 1.5% larger |
 
 The measured API response was 1.5% larger; serialized content includes dynamic source metadata and timestamps. Idle-memory samples varied substantially between repeat runs, so the median is shown and should not be read as a tight bound. API timings are short local requests and do not predict remote network latency.
+
+## GStreamer video path
+
+The live capture already matches the configured Xvfb output dimensions. The pipeline now skips the redundant `videoscale` stage, parallelizes `videoconvert` using the container-aware worker count, and inserts `videorate` only when `CAPTURE_FPS` differs from `FPS`. A finite 60-to-30 fps smoke capture produced 121 frames at 30 fps over the four-second recording window.
+
+Compared with the previous Rust image (`04217e4`), three paired finite encodes kept the same 450 frames and 21.41 MiB output. Median wall time moved from 31.90 to 31.58 seconds (1.0% faster), cgroup CPU from 11.89 to 10.99 seconds (7.6% lower), and peak memory from 839.8 to 800.0 MiB (4.7% lower). These are modest differences and should be treated as directional; the primary gain remains the full comparison against FFmpeg above.
 
 ## Dashboard hot-path refactor
 
