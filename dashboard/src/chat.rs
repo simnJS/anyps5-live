@@ -120,6 +120,7 @@ const STAGES: [&str; 5] = [
     "In game",
 ];
 const DISCORD: &str = "discord.gg/BHFztBPUe";
+pub const CHAT_REMINDER: &str = "💬 Ask the stream: !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
 const ROMAN: [(&str, &str); 15] = [
     ("xvi", "16"),
     ("xv", "15"),
@@ -182,7 +183,12 @@ fn expand(mut query: String) -> String {
                 .strip_prefix(prefix)
                 .is_some_and(|s| s.chars().next().is_some_and(|c| c.is_ascii_digit()))
         {
-            query = format!("{full}{}", query.strip_prefix(prefix).unwrap_or_default());
+            let suffix = query.strip_prefix(prefix).unwrap_or_default();
+            query = if suffix.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                format!("{full} {suffix}")
+            } else {
+                format!("{full}{suffix}")
+            };
             break;
         }
     }
@@ -475,4 +481,235 @@ pub fn command_answer(
         progress,
         top,
     )
+}
+
+pub fn next_chat_delay(
+    now_ms: i64,
+    burst_until_ms: i64,
+    remaining_units: i64,
+    idle_seconds: u64,
+) -> u64 {
+    if remaining_units <= 0 {
+        300_000
+    } else if now_ms < burst_until_ms {
+        250
+    } else {
+        idle_seconds * 1000
+    }
+}
+
+pub fn quota_day(now_ms: i64) -> String {
+    DateTime::<Utc>::from_timestamp_millis(now_ms)
+        .unwrap_or_else(Utc::now)
+        .with_timezone(&chrono_tz::America::Los_Angeles)
+        .date_naive()
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(text: &str) -> StreamMessage {
+        StreamMessage {
+            id: "m1".into(),
+            kind: 1,
+            text: text.into(),
+            published_at: String::new(),
+            author_id: "viewer-id".into(),
+            author: "Viewer".into(),
+        }
+    }
+    fn thread(name: &str, stage: &str, replies: i64, title_id: &str) -> Value {
+        json!({"name":name,"stage":stage,"replies":replies,"titleId":title_id})
+    }
+    fn threads() -> Vec<Value> {
+        vec![
+            thread("Demon's Souls", "Menu", 4, "PPSA01341"),
+            thread("Demon's Souls", "In game", 9, "PPSA01342"),
+            thread("Astro's Playroom", "Logos or loading", 30, "PPSA01325"),
+        ]
+    }
+    fn ask(text: &str) -> Option<Value> {
+        command_answer(
+            &message(text),
+            &threads(),
+            &[
+                json!({"name":"libKernel","label":"Kernel","done":450,"total":600}),
+                json!({"name":"libSceGnmDriver","label":"GPU driver","done":10,"total":400}),
+            ],
+            &Value::Null,
+            &[],
+        )
+    }
+
+    #[test]
+    fn ignores_non_commands_and_near_misses() {
+        for text in [
+            "hello",
+            "this !game is great",
+            "!gamer",
+            "!discordant",
+            "!topic",
+        ] {
+            assert!(ask(text).is_none(), "{text}");
+        }
+        assert!(
+            command_answer(
+                &StreamMessage {
+                    kind: 0,
+                    ..message("!help")
+                },
+                &[],
+                &[],
+                &Value::Null,
+                &[]
+            )
+            .is_none()
+        );
+    }
+    #[test]
+    fn game_matching_preserves_upstream_behavior() {
+        let answer = ask("!game demons souls").unwrap();
+        assert_eq!(answer["title"], "Demon's Souls");
+        assert_eq!(answer["pill"], "In game");
+        assert_eq!(answer["kicker"], "!game · asked by Viewer");
+        assert_eq!(ask("!GAME ppsa01325").unwrap()["title"], "Astro's Playroom");
+        assert_eq!(ask("!game astro").unwrap()["title"], "Astro's Playroom");
+        assert_eq!(
+            ask("!game playroom of astro bot").unwrap()["meta"],
+            "Closest: Astro's Playroom"
+        );
+    }
+    #[test]
+    fn library_matching_and_help_are_preserved() {
+        assert_eq!(ask("!lib kernel").unwrap()["pill"], "75%");
+        assert_eq!(ask("!lib gnm").unwrap()["title"], "GPU driver");
+        assert!(
+            ask("!lib zzz").unwrap()["title"]
+                .as_str()
+                .unwrap()
+                .starts_with("No library found")
+        );
+        assert!(
+            ask("!help").unwrap()["title"]
+                .as_str()
+                .unwrap()
+                .contains("!game")
+        );
+        assert!(
+            ask("!game").unwrap()["title"]
+                .as_str()
+                .unwrap()
+                .contains("!lib")
+        );
+    }
+    #[test]
+    fn viewer_query_never_appears_in_screen_answer() {
+        let game = ask("!game buy cheap followers at spam.example")
+            .unwrap()
+            .to_string();
+        let library = ask("!lib spam.example").unwrap().to_string();
+        assert!(!game.contains("spam") && !game.contains("followers"));
+        assert!(!library.contains("spam"));
+    }
+    #[test]
+    fn aliases_word_order_and_numerals_match() {
+        let games = vec![
+            thread("Grand Theft Auto V", "In game", 25, ""),
+            thread("Red Dead Redemption", "In game", 2, ""),
+            thread("Final Fantasy VII", "In game", 1, ""),
+            thread("Resident Evil 4", "Menu", 1, ""),
+        ];
+        let ask_games =
+            |s: &str| command_answer(&message(s), &games, &[], &Value::Null, &[]).unwrap();
+        for (query, title) in [
+            ("!game gta v", "Grand Theft Auto V"),
+            ("!game gta 5", "Grand Theft Auto V"),
+            ("!game GTA5", "Grand Theft Auto V"),
+            ("!game rdr", "Red Dead Redemption"),
+            ("!game redemption red", "Red Dead Redemption"),
+            ("!game final fantasy 7", "Final Fantasy VII"),
+            ("!game ff7", "Final Fantasy VII"),
+            ("!game resident evil iv", "Resident Evil 4"),
+        ] {
+            assert_eq!(ask_games(query)["title"], title, "{query}");
+        }
+    }
+    #[test]
+    fn gta_six_fallback_yields_to_a_real_thread() {
+        let answer = ask("!game gta 6").unwrap();
+        assert_eq!(answer["title"], "GTA VI");
+        assert_eq!(answer["pill"], "0%");
+        let real = command_answer(
+            &message("!game gta vi"),
+            &[thread("Grand Theft Auto VI", "Menu", 3, "")],
+            &[],
+            &Value::Null,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(real["pill"], "Menu");
+    }
+    #[test]
+    fn discord_next_top_and_random_match_contract() {
+        let discord = ask("!discord").unwrap();
+        assert_eq!(discord["kind"], "discord");
+        assert!(
+            discord["meta"]
+                .as_str()
+                .unwrap()
+                .contains("discord.gg/BHFztBPUe")
+        );
+        assert_eq!(discord["image"], "discord-qr.svg");
+        assert!(
+            ask("!next").unwrap()["title"]
+                .as_str()
+                .unwrap()
+                .contains("loading")
+        );
+        let progress = json!({"done":9134,"week":{"done":2800}});
+        let top = vec![
+            json!({"author":"ana","merged":18}),
+            json!({"author":"bo","merged":3}),
+        ];
+        let next = command_answer(&message("!next"), &[], &[], &progress, &[]).unwrap();
+        assert_eq!(next["title"], "Next goal: 10,000 functions");
+        assert!(
+            next["meta"]
+                .as_str()
+                .unwrap()
+                .starts_with("866 to go · about 2 days")
+        );
+        let top_answer = command_answer(&message("!top"), &[], &[], &Value::Null, &top).unwrap();
+        assert_eq!(top_answer["title"], "ana leads today");
+        assert_eq!(top_answer["pill"], "18 PRs");
+        for _ in 0..20 {
+            assert_eq!(ask("!random").unwrap()["pill"], "In game");
+        }
+    }
+    #[test]
+    fn reminder_budget_and_california_day_contracts() {
+        assert!(CHAT_REMINDER.chars().count() <= 200);
+        assert!(CHAT_REMINDER.contains("https://discord.gg/BHFztBPUe"));
+        assert_eq!(next_chat_delay(1000, 5000, 1, 75), 250);
+        assert_eq!(next_chat_delay(6000, 5000, 1, 75), 75_000);
+        assert_eq!(next_chat_delay(1000, 5000, 0, 75), 300_000);
+        assert_eq!(
+            quota_day(
+                chrono::DateTime::parse_from_rfc3339("2026-11-02T07:00:00Z")
+                    .unwrap()
+                    .timestamp_millis()
+            ),
+            "2026-11-01"
+        );
+        assert_eq!(
+            quota_day(
+                chrono::DateTime::parse_from_rfc3339("2026-11-02T09:00:00Z")
+                    .unwrap()
+                    .timestamp_millis()
+            ),
+            "2026-11-02"
+        );
+    }
 }

@@ -3,7 +3,13 @@ param(
   [string]$CandidateImage = "anyps5-live-rust",
   [int]$Samples = 40,
   [int]$HostPort = 18081,
-  [int]$EncodeSeconds = 15
+  [int]$EncodeSeconds = 15,
+  [int]$Width = 2560,
+  [int]$Height = 1440,
+  [string]$VideoBitrate = "12000k",
+  [string]$BufferSize = "24000k",
+  [double]$CpuLimit = 4,
+  [int]$EncodeRuns = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +26,7 @@ function Measure-Encode([string]$Image, [string]$Name) {
   $sampleMem = [System.Collections.Generic.List[double]]::new()
   try {
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    docker run -d --name $container -e SHORTS=0 -e WIDTH=1280 -e HEIGHT=720 -e FPS=30 -e CAPTURE_FPS=30 -e VIDEO_BITRATE=3000k -e BUFSIZE=6000k -e PRESET=superfast -e OUTPUT=/recordings/bench.mp4 -e "RECORD_SECONDS=$EncodeSeconds" $Image | Out-Null
+    docker run -d --cpus $CpuLimit --name $container -e SHORTS=0 -e "WIDTH=$Width" -e "HEIGHT=$Height" -e FPS=30 -e CAPTURE_FPS=30 -e "VIDEO_BITRATE=$VideoBitrate" -e "BUFSIZE=$BufferSize" -e PRESET=superfast -e OUTPUT=/recordings/bench.mp4 -e "RECORD_SECONDS=$EncodeSeconds" $Image | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not start encode benchmark for $Image" }
     do {
       Start-Sleep -Seconds 1
@@ -138,7 +144,9 @@ function Measure-Image([string]$Image, [string]$Name) {
 $results = @(
   (Measure-Image $BaselineImage "baseline")
   (Measure-Image $CandidateImage "candidate")
-  (Measure-Encode $BaselineImage "baseline")
-  (Measure-Encode $CandidateImage "candidate")
 )
+for ($run = 1; $run -le $EncodeRuns; $run++) {
+  $results += Measure-Encode $BaselineImage "baseline-$run"
+  $results += Measure-Encode $CandidateImage "candidate-$run"
+}
 $results | ConvertTo-Json -Depth 4

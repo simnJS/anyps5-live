@@ -46,17 +46,22 @@ fn pipeline(output: &str, short: bool) -> String {
         .unwrap_or(128)
         * 1000;
     let preset = value("PRESET", if short { "veryfast" } else { "superfast" });
+    let gop = fps.parse::<u32>().unwrap_or(30) * 2;
+    let loudness_target = if short { -27 } else { -22 };
+    let x264_options =
+        format!("min-keyint={gop}:scenecut=0:colorprim=bt709:transfer=bt709:colormatrix=bt709");
     let rate_control = if short {
-        "pass=qual quantizer=20".to_owned()
+        format!("pass=qual quantizer=20 option-string={x264_options}")
     } else {
-        format!("pass=cbr option-string=nal-hrd=cbr bitrate={kbps} vbv-buf-capacity={buffer_ms}")
+        format!(
+            "pass=cbr bitrate={kbps} vbv-buf-capacity={buffer_ms} option-string=nal-hrd=cbr:{x264_options}"
+        )
     };
     let display = if short { ":98.0" } else { ":99.0" };
     let video = format!(
         "ximagesrc name=video_source display-name={display} use-damage=false show-pointer=false ! video/x-raw,framerate={capture}/1 ! \
-         videoconvert ! videoscale ! video/x-raw,width={width},height={height},format=I420,framerate={fps}/1 ! \
-         x264enc tune=zerolatency speed-preset={preset} {rate_control} key-int-max={} ! h264parse config-interval=-1 ! queue ! mux.",
-        fps.parse::<u32>().unwrap_or(30) * 2,
+         videoconvert ! videoscale ! video/x-raw,width={width},height={height},format=I420,framerate={fps}/1,colorimetry=bt709 ! \
+         x264enc speed-preset={preset} {rate_control} key-int-max={gop} ! h264parse config-interval=-1 ! queue ! mux."
     );
     let audio = if music_tracks().is_empty() {
         format!(
@@ -64,7 +69,7 @@ fn pipeline(output: &str, short: bool) -> String {
         )
     } else {
         format!(
-            "appsrc name=music_src is-live=true format=time do-timestamp=true ! audioconvert ! audioresample ! volume name=music_volume ! audioloudnorm loudness-target=-22 loudness-range-target=11 max-true-peak=-2 ! audioconvert ! audioresample ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
+            "appsrc name=music_src is-live=true format=time do-timestamp=true ! audioconvert ! audioresample ! audioloudnorm loudness-target={loudness_target} loudness-range-target=11 max-true-peak=-2 ! volume name=music_volume ! audioconvert ! audioresample ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
         )
     };
     let sink = if output.starts_with("rtmp://") || output.starts_with("rtmps://") {

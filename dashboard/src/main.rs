@@ -189,7 +189,7 @@ async fn youtube_stats(
             let at = state["sources"]["youtube"]["at"].clone();
             state["sources"]["youtube"] = json!({"ok":false,"at":at,"error":error.to_string()});
         }
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(Duration::from_secs(120)).await;
     }
 }
 
@@ -789,7 +789,9 @@ async fn collect(app: AppState) {
             );
             state["updatedAt"] = json!(now);
         }
-        tokio::time::sleep(Duration::from_secs(if token.is_some() { 300 } else { 600 })).await;
+        // Authenticated activity cards refresh at upstream's two minute cadence;
+        // the remaining GitHub API work shares this loop and stays within quota.
+        tokio::time::sleep(Duration::from_secs(if token.is_some() { 120 } else { 600 })).await;
     }
 }
 
@@ -889,10 +891,7 @@ async fn chat_loop(app: AppState) {
             tokio::time::sleep(Duration::from_secs(10)).await;
             continue;
         };
-        let day = Utc::now()
-            .with_timezone(&chrono_tz::America::Los_Angeles)
-            .date_naive()
-            .to_string();
+        let day = chat::quota_day(Utc::now().timestamp_millis());
         let units = {
             let mut persisted = app.persisted.write().await;
             if persisted["chatUnits"]["day"].as_str() != Some(&day) {
@@ -945,7 +944,7 @@ async fn chat_loop(app: AppState) {
             }
         }
         let now = Utc::now().timestamp_millis();
-        let delay = if now < burst_until { 250 } else { idle * 1000 };
+        let delay = chat::next_chat_delay(now, burst_until, daily_units - units, idle);
         tokio::time::sleep(Duration::from_millis(delay)).await;
     }
 }
@@ -1011,7 +1010,7 @@ async fn chat_reminder(app: AppState) {
             json!({"ok":false,"at":null,"error":"Google token refresh failed"});
         return;
     };
-    let response = app.client.post("https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet").bearer_auth(token).json(&json!({"snippet":{"liveChatId":live_id,"type":"textMessageEvent","textMessageDetails":{"messageText":"💬 Ask the stream: !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe"}}})).send().await;
+    let response = app.client.post("https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet").bearer_auth(token).json(&json!({"snippet":{"liveChatId":live_id,"type":"textMessageEvent","textMessageDetails":{"messageText":chat::CHAT_REMINDER}}})).send().await;
     let mut state = app.data.write().await;
     state["sources"]["chatReminder"] = match response {
         Ok(r) if r.status().is_success() => json!({"ok":true,"at":Utc::now().to_rfc3339()}),
