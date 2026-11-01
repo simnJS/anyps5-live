@@ -23,7 +23,10 @@ async fn main() -> Result<()> {
         .append_pair("client_id", &client_id)
         .append_pair("redirect_uri", redirect)
         .append_pair("response_type", "code")
-        .append_pair("scope", "https://www.googleapis.com/auth/youtube.upload")
+        .append_pair(
+            "scope",
+            "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl",
+        )
         .append_pair("access_type", "offline")
         .append_pair("prompt", "consent");
     println!("Open this page, signed in as the channel owner:\n\n{consent}\n");

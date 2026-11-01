@@ -296,7 +296,10 @@ fn game_answer(id: &str, kicker: &str, query: &str, threads: &[Value]) -> Value 
             - Utc::now().timestamp_millis())
         .div_euclid(86_400_000);
         let meta = if days > 0 {
-            format!("Out in {days} days on consoles, so there's nothing to test yet")
+            format!(
+                "Out in {days} day{} on consoles, so there's nothing to test yet",
+                if days == 1 { "" } else { "s" }
+            )
         } else {
             "Out on consoles, no AnyPS5 test report yet".into()
         };
