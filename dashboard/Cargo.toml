@@ -3,6 +3,11 @@ name = "anyps5-live-dashboard"
 version = "1.0.0"
 edition = "2024"
 
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"

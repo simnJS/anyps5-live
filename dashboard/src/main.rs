@@ -64,7 +64,8 @@ async fn short_meta(State(app): State<AppState>) -> Json<Value> {
 }
 
 async fn health(State(app): State<AppState>) -> (axum::http::StatusCode, &'static str) {
-    if app.data.read().await["progress"].is_null() && app.data.read().await["github"].is_null() {
+    let data = app.data.read().await;
+    if data["progress"].is_null() && data["github"].is_null() {
         (axum::http::StatusCode::SERVICE_UNAVAILABLE, "starting")
     } else {
         (axum::http::StatusCode::OK, "ok")
@@ -1161,10 +1162,10 @@ async fn main() -> Result<()> {
     }
     let data = Arc::new(RwLock::new(json!({
         "updatedAt": started, "startedAt": started, "sources": {}, "progress": null, "history": [],
-        "libraries": null, "github": {"stars":0,"openPrs":null,"merged24h":null,"merged7d":null,"mergedPrs":[],"openedPrs":[],"topAuthors":[],"release":null,"rateRemaining":null,"authenticated":env::var("GITHUB_TOKEN").map(|x|!x.is_empty()).unwrap_or(false)},
+        "libraries": null, "github": null,
         "games": null, "events": [],
-        "youtube": {"likes": null, "viewers": null, "shorts": false},
-        "chat": {"enabled": env::var("CHAT_COMMANDS").as_deref() == Ok("1"), "answers": []}
+        "youtube": {"likes": null, "viewers": null, "shorts": env::var("YOUTUBE_REFRESH_TOKEN").is_ok_and(|x| !x.is_empty())},
+        "chat": {"enabled": env::var("CHAT_COMMANDS").as_deref() == Ok("1") && env::var("YOUTUBE_API_KEY").is_ok_and(|x| !x.is_empty()) && env::var("YOUTUBE_VIDEO_ID").is_ok_and(|x| !x.is_empty()), "answers": []}
     })));
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert("user-agent", "anyps5-live-dashboard".parse()?);

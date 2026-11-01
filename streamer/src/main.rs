@@ -60,11 +60,11 @@ fn pipeline(output: &str, short: bool) -> String {
     );
     let audio = if music_tracks().is_empty() {
         format!(
-            "audiotestsrc name=silence_source is-live=true wave=silence ! audio/x-raw,rate=44100,channels=2 ! audioconvert ! audioresample ! volume name=music_volume ! audiodynamic characteristics=soft-knee mode=compressor threshold=0.25 ratio=0.5 ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
+            "audiotestsrc name=silence_source is-live=true wave=silence ! audio/x-raw,format=S16LE,rate=44100,channels=2 ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
         )
     } else {
         format!(
-            "appsrc name=music_src is-live=true format=time do-timestamp=true ! audioconvert ! audioresample ! volume name=music_volume ! audiodynamic characteristics=soft-knee mode=compressor threshold=0.25 ratio=0.5 ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
+            "appsrc name=music_src is-live=true format=time do-timestamp=true ! audioconvert ! audioresample ! volume name=music_volume ! audioloudnorm loudness-target=-22 loudness-range-target=11 max-true-peak=-2 ! audioconvert ! audioresample ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
         )
     };
     let sink = if output.starts_with("rtmp://") || output.starts_with("rtmps://") {
@@ -523,7 +523,6 @@ async fn main() -> Result<()> {
         "/tmp/xvfb.log",
     )
     .await?;
-    time::sleep(Duration::from_secs(2)).await;
     let dashboard_url = value("DASHBOARD_URL", "http://dashboard:8080/")
         .trim_end_matches('/')
         .to_owned();

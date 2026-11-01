@@ -1,23 +1,32 @@
 # Rust rebuild benchmark
 
-Measured 1 November 2026 against the original fork at `7bfdacc8a1bdbab235624623241b85b981803992`. Both images were built and run on the same Docker Desktop 29.8.2 Linux x86_64 engine (20 vCPU, 15.6 GiB reported to Docker), with no GitHub or YouTube credentials and no live stream key.
+Measured against upstream `main` at `17da608`, the exact base commit of this PR. Results are medians from two paired runs on the same Docker Desktop 29.8.2 Linux x86_64 host (20 vCPU, 15.6 GiB reported to Docker). Both images ran without GitHub or YouTube credentials or a live stream key.
 
-| Measure | Original Node + FFmpeg | Rust + GStreamer | Change |
+| Measure | Current upstream Node + FFmpeg | Rust + GStreamer | Change |
 |---|---:|---:|---:|
-| Container image | 1,574.1 MiB | 1,432.6 MiB | 9.0% smaller |
-| Health-ready after `docker run` | 918 ms | 430 ms | 53.2% faster |
-| Idle container memory | 87.51 MiB | 25.71 MiB | 70.6% lower |
-| `/api/state` latency, median (40 warm requests) | 1.22 ms | 0.90 ms | 26.2% lower |
-| `/api/state` latency, p95 | 2.61 ms | 1.19 ms | 54.4% lower |
-| 15-second 1280×720, 30 fps MP4 job, end-to-end wall time | 34.17 s | 34.47 s | 0.9% slower |
+| Container image | 1,596.3 MiB | 1,429.0 MiB | 10.5% smaller |
+| Health-ready after `docker run` | 0.77 s | 1.43 s | 0.66 s slower |
+| Idle container memory | 64.68 MiB | 17.62 MiB | 72.8% lower |
+| `/api/state` median (40 warm requests) | 1.21 ms | 0.86 ms | 29.0% lower |
+| `/api/state` p95 | 1.67 ms | 1.19 ms | 29.0% lower |
+| `/api/state` payload | 41,410 bytes | 42,273 bytes | 2.1% larger |
+| 15-second 1280×720, 30 fps MP4 job, end-to-end wall time | 34.55 s | 34.03 s | 1.5% faster |
 | Encoded MP4 size | 5.32 MiB | 5.55 MiB | 4.3% larger |
-| Mean container CPU during MP4 job | 16.0% | 14.4% | −1.6 percentage points |
-| Peak container memory during MP4 job | 591.9 MiB | 358.6 MiB | 39.4% lower |
+| Mean container CPU during MP4 job | 12.05% | 10.40% | 1.65 percentage points lower |
+| Peak container memory during MP4 job | 624.3 MiB | 244.4 MiB | 60.9% lower |
 
-The MP4 job used the same `superfast` x264 preset, 3000 kbit/s target, 6000 kbit VBV, 1280×720 output, 30 fps, and 15-second recording duration. The measured wall time includes container startup and the matching 15-second browser warmup. Output size is close between encoders; this run was 0.3 seconds slower on GStreamer, used 1.6 percentage points less average CPU, and cut peak memory by 39.4%.
+The encode job used the same `superfast` x264 preset, 3000 kbit/s target, 6000 kbit VBV, 1280×720 output, 30 fps, and 15-second recording duration. Wall time includes container startup, browser warmup, recording, and mux finalization. The Rust job was 0.52 seconds faster at the median. Its output was 0.23 MiB larger, and its health-ready time was 0.66 seconds slower. The two runs used the same state payload size for each implementation; remote upstream content can still affect future runs.
 
-Dashboard readiness and idle-memory results are single-run measurements. HTTP latency excludes the first five warm-up requests. The benchmark script runs the same requests and encoding jobs against both image tags and reports raw measurements:
+The benchmark script waits for both progress and history collection before measuring `/api/state`, then takes 5 warm-up requests and 40 timed requests. It reports the response size so changes in collected data remain visible. Health readiness remains governed by the dashboard's collected-data contract.
+
+To reproduce from the repository root:
 
 ```powershell
+git worktree add .bench-upstream 17da608
+docker build -t anyps5-live-upstream-baseline .bench-upstream
+git worktree remove .bench-upstream
+docker build -t anyps5-live-rust .
 pwsh -NoProfile -File benchmarks/bench-containers.ps1 -Samples 40 -EncodeSeconds 15
 ```
+
+The offline finite-recording benchmark uses silence. A separate smoke recording with a WAV soundtrack confirmed that the bundled Rust `audioloudnorm` plugin loads and produces a non-empty MP4. The live YouTube chat, reminders, Short upload, and RTMP delivery require credentials or an external service and were not exercised in this benchmark.

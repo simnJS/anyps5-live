@@ -1,5 +1,5 @@
 param(
-  [string]$BaselineImage = "anyps5-live-original-baseline",
+  [string]$BaselineImage = "anyps5-live-upstream-baseline",
   [string]$CandidateImage = "anyps5-live-rust",
   [int]$Samples = 40,
   [int]$HostPort = 18081,
@@ -83,6 +83,25 @@ function Measure-Image([string]$Image, [string]$Name) {
     }
     $startup.Stop()
     if (-not $ready) { throw "$Image did not become healthy within 90 seconds" }
+    $dataReady = $false
+    $dataDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    while ([DateTime]::UtcNow -lt $dataDeadline) {
+      try {
+        $stateResponse = $client.GetAsync("$base/api/state").GetAwaiter().GetResult()
+        $stateBytes = $stateResponse.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        $stateJson = [System.Text.Encoding]::UTF8.GetString($stateBytes) | ConvertFrom-Json
+        if ($stateResponse.IsSuccessStatusCode -and
+            $null -ne $stateJson.progress.done -and
+            $null -ne $stateJson.libraries.count -and
+            $stateJson.sources.progress.ok -eq $true -and
+            $stateJson.sources.history.ok -eq $true) {
+          $dataReady = $true
+          break
+        }
+      } catch { }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not $dataReady) { throw "$Image did not collect core dashboard data within 60 seconds" }
     Start-Sleep -Seconds 10
 
     $latencies = [System.Collections.Generic.List[double]]::new()

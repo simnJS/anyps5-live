@@ -117,7 +117,7 @@ docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:
 | Stop everything | `docker compose down` (the snapshots stay in the volume) |
 | Current state as JSON | `curl -s http://127.0.0.1:8080/api/state` |
 
-**Soundtrack**: put `.mp3`, `.m4a`, `.ogg`, `.flac`, or `.wav` tracks in `./music`. The Rust GStreamer pipeline shuffles the playlist, compresses audio dynamics, and fades the Short track in and out. Shorts select one available track. With no files, the stream uses silence.
+**Soundtrack**: put `.mp3`, `.m4a`, `.ogg`, `.flac`, or `.wav` tracks in `./music`. The Rust GStreamer pipeline shuffles the playlist and applies EBU R128 loudness normalization (`-22 LUFS`, `-2 dBTP`, `11 LU`) to music. Shorts select one available track and fade it in and out. With no files, the stream uses silence.
 
 ## Rust rebuild benchmarks
 

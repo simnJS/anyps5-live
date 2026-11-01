@@ -2,8 +2,12 @@
 # build one Dockerfile and run one service. docker-compose.yml runs them as two containers instead.
 FROM rust:1-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+      git pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
  && rm -rf /var/lib/apt/lists/*
+# The pinned GStreamer 1.22 plugin predates rustc's raw-pointer autoref lint.
+RUN git clone --depth 1 --branch gstreamer-1.22.9 https://github.com/GStreamer/gst-plugins-rs.git /gst-plugins-rs \
+ && RUSTFLAGS="-A dangerous_implicit_autorefs" cargo build --release --manifest-path /gst-plugins-rs/audio/audiofx/Cargo.toml --lib \
+ && strip --strip-unneeded /gst-plugins-rs/target/release/libgstrsaudiofx.so
 WORKDIR /build
 COPY dashboard/Cargo.toml ./dashboard/Cargo.toml
 COPY dashboard/Cargo.lock ./dashboard/Cargo.lock
@@ -29,6 +33,8 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /build/dashboard/target/release/anyps5-live-dashboard /usr/local/bin/dashboard
 COPY --from=build /build/streamer/target/release/anyps5-live-streamer /usr/local/bin/anyps5-live-streamer
+COPY --from=build /gst-plugins-rs/target/release/libgstrsaudiofx.so /usr/local/lib/gstreamer-1.0/libgstrsaudiofx.so
+COPY --from=build /gst-plugins-rs/LICENSE-MPL-2.0 /usr/share/licenses/gst-plugin-audiofx/LICENSE-MPL-2.0
 COPY dashboard/public ./public
 COPY streamer/entrypoint.sh /usr/local/bin/streamer.sh
 COPY streamer/shorts.sh /usr/local/bin/shorts.sh
@@ -50,7 +56,8 @@ ENV DATA_DIR=/data \
     AUDIO_BITRATE=128k \
     PRESET=superfast \
     WARMUP_SECONDS=15 \
-    BROWSER_RESTART_HOURS=24
+    BROWSER_RESTART_HOURS=24 \
+    GST_PLUGIN_PATH_1_0=/usr/local/lib/gstreamer-1.0
 
 VOLUME /data
 EXPOSE 3000
