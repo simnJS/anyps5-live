@@ -14,6 +14,7 @@ use anyhow::{Context, Result, anyhow};
 use gst::{MessageView, prelude::*};
 use gstreamer as gst;
 use gstreamer_app::{AppSink, AppSinkCallbacks, AppSrc};
+use tokio::net::UnixStream;
 use tokio::{
     process::{Child, Command},
     time,
@@ -26,7 +27,99 @@ fn escaped(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn pipeline(output: &str, short: bool) -> String {
+fn sanitize_stream_error(message: &str, output: &str) -> String {
+    if !(output.starts_with("rtmp://") || output.starts_with("rtmps://")) {
+        return message.to_owned();
+    }
+    let mut safe = message.replace(output, "RTMP destination");
+    if let Some(key) = output.rsplit('/').next().filter(|part| !part.is_empty()) {
+        safe = safe.replace(key, "[redacted]");
+    }
+    safe
+}
+
+fn redacted_error(error: &anyhow::Error, output: &str) -> anyhow::Error {
+    anyhow!(sanitize_stream_error(&format!("{error:#}"), output))
+}
+
+#[derive(Debug)]
+struct MusicPlaylist {
+    tracks: Vec<String>,
+    queue: VecDeque<String>,
+    remaining: usize,
+    random_state: u64,
+}
+
+struct MusicPlayback {
+    pipeline: gst::Pipeline,
+    active: Arc<AtomicBool>,
+}
+
+impl MusicPlaylist {
+    fn new(tracks: Vec<String>, entries: usize) -> Result<Self> {
+        if tracks.is_empty() {
+            anyhow::bail!("empty music playlist");
+        }
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        Ok(Self {
+            tracks,
+            queue: VecDeque::new(),
+            remaining: entries,
+            random_state: seed.max(1),
+        })
+    }
+
+    fn next(&mut self) -> Option<String> {
+        if self.remaining == 0 {
+            return None;
+        }
+        if self.queue.is_empty() {
+            self.queue = self.tracks.iter().cloned().collect();
+            for i in (1..self.queue.len()).rev() {
+                self.random_state ^= self.random_state << 13;
+                self.random_state ^= self.random_state >> 7;
+                self.random_state ^= self.random_state << 17;
+                self.queue.swap(i, self.random_state as usize % (i + 1));
+            }
+        }
+        self.remaining -= 1;
+        self.queue.pop_front()
+    }
+}
+
+fn short_fade_gain(media_time: f64) -> f64 {
+    let fade_in = (media_time / 0.5).clamp(0.0, 1.0);
+    let fade_out = if media_time > 29.5 {
+        ((31.0 - media_time) / 1.5).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    fade_in * fade_out
+}
+
+fn attach_short_fades(volume: &gst::Element) -> Result<()> {
+    let pad = volume
+        .static_pad("sink")
+        .context("music volume sink pad missing")?;
+    let volume = volume.clone();
+    let media_origin = Arc::new(Mutex::new(None::<u64>));
+    let media_origin_probe = media_origin.clone();
+    pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
+        if let Some(time) = info.buffer().and_then(|buffer| buffer.pts()) {
+            let mut origin = media_origin_probe.lock().expect("fade time origin mutex");
+            let first_pts = *origin.get_or_insert(time.nseconds());
+            let media_time = time.nseconds().saturating_sub(first_pts) as f64 / 1_000_000_000.0;
+            volume.set_property("volume", short_fade_gain(media_time));
+        }
+        gst::PadProbeReturn::Ok
+    });
+    Ok(())
+}
+
+fn pipeline(output: &str, short: bool, seconds: Option<u64>) -> String {
     let width = value("WIDTH", if short { "1080" } else { "2560" });
     let height = value("HEIGHT", if short { "1920" } else { "1440" });
     let capture = value("CAPTURE_FPS", "30");
@@ -47,6 +140,15 @@ fn pipeline(output: &str, short: bool) -> String {
         * 1000;
     let preset = value("PRESET", if short { "veryfast" } else { "superfast" });
     let gop = fps.parse::<u32>().unwrap_or(30) * 2;
+    let encoder_threads = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(0);
+    let frame_limit = seconds.map_or_else(String::new, |seconds| {
+        format!(
+            " num-buffers={}",
+            capture.parse::<u64>().unwrap_or(30).saturating_mul(seconds)
+        )
+    });
     let loudness_target = if short { -27 } else { -22 };
     let x264_options =
         format!("min-keyint={gop}:scenecut=0:colorprim=bt709:transfer=bt709:colormatrix=bt709");
@@ -59,17 +161,20 @@ fn pipeline(output: &str, short: bool) -> String {
     };
     let display = if short { ":98.0" } else { ":99.0" };
     let video = format!(
-        "ximagesrc name=video_source display-name={display} use-damage=false show-pointer=false ! video/x-raw,framerate={capture}/1 ! \
+        "ximagesrc name=video_source display-name={display} use-damage=false show-pointer=false{frame_limit} ! video/x-raw,framerate={capture}/1 ! \
          videoconvert ! videoscale ! video/x-raw,width={width},height={height},format=I420,framerate={fps}/1,colorimetry=bt709 ! \
-         x264enc speed-preset={preset} {rate_control} key-int-max={gop} ! h264parse config-interval=-1 ! queue ! mux."
+         x264enc name=video_encoder speed-preset={preset} threads={encoder_threads} {rate_control} key-int-max={gop} bframes=3 rc-lookahead=0 ! h264parse name=video_parser config-interval=-1 ! queue name=video_queue max-size-time=10000000000 max-size-bytes=0 max-size-buffers=0 ! mux."
     );
     let audio = if music_tracks().is_empty() {
+        let silence_limit = seconds.map_or_else(String::new, |seconds| {
+            format!(" num-buffers={}", seconds.saturating_mul(44_100) / 1024)
+        });
         format!(
-            "audiotestsrc name=silence_source is-live=true wave=silence ! audio/x-raw,format=S16LE,rate=44100,channels=2 ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
+            "audiotestsrc name=silence_source is-live=true wave=silence{silence_limit} ! audio/x-raw,format=S16LE,rate=44100,channels=2 ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
         )
     } else {
         format!(
-            "appsrc name=music_src is-live=true format=time do-timestamp=true ! audioconvert ! audioresample ! audioloudnorm loudness-target={loudness_target} loudness-range-target=11 max-true-peak=-2 ! volume name=music_volume ! audioconvert ! audioresample ! voaacenc bitrate={audio_bps} ! aacparse ! queue ! mux."
+            "appsrc name=music_src is-live=true format=time do-timestamp=true ! audioconvert ! audioresample ! audioloudnorm name=loudness loudness-target={loudness_target} loudness-range-target=11 max-true-peak=-2 ! audioconvert ! audioresample ! volume name=music_volume ! audioconvert ! audio/x-raw,format=S16LE,rate=44100,channels=2 ! voaacenc bitrate={audio_bps} ! aacparse ! queue name=audio_queue ! mux."
         )
     };
     let sink = if output.starts_with("rtmp://") || output.starts_with("rtmps://") {
@@ -125,10 +230,10 @@ fn music_tracks() -> Vec<PathBuf> {
 }
 
 fn attach_music(
-    pipeline: &gst::Pipeline,
+    capture_pipeline: &gst::Pipeline,
     tracks: &[PathBuf],
     loop_music: bool,
-) -> Result<Option<Arc<AtomicBool>>> {
+) -> Result<Option<MusicPlayback>> {
     if tracks.is_empty() {
         return Ok(None);
     }
@@ -140,7 +245,7 @@ fn attach_music(
         .downcast::<AppSink>()
         .map_err(|_| anyhow!("appsink factory returned the wrong type"))?;
     audio_sink.set_property("sync", true);
-    let src_element = pipeline
+    let src_element = capture_pipeline
         .by_name("music_src")
         .context("music appsrc missing")?;
     let audio_src = src_element
@@ -154,7 +259,16 @@ fn attach_music(
             .new_sample(move |sink| {
                 let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
                 if active.load(Ordering::Relaxed) {
-                    bridge.push_sample(&sample)
+                    let mut buffer = sample.buffer().ok_or(gst::FlowError::Error)?.copy();
+                    if let Some(buffer) = buffer.get_mut() {
+                        // The decoded file uses its own timeline. Re-timestamp on insertion so
+                        // music shares the live capture pipeline's clock and muxer timeline.
+                        buffer.set_pts(None);
+                        buffer.set_dts(None);
+                    }
+                    let caps = sample.caps().map(|caps| caps.to_owned());
+                    bridge.set_caps(caps.as_ref());
+                    bridge.push_buffer(buffer)
                 } else {
                     Ok(gst::FlowSuccess::Ok)
                 }
@@ -164,126 +278,143 @@ fn attach_music(
     playbin.set_property("audio-sink", &audio_sink);
     let fake_video = gst::ElementFactory::make("fakesink").build()?;
     playbin.set_property("video-sink", &fake_video);
-    pipeline.add(&playbin)?;
-    let playlist: Vec<String> = (0..if loop_music { 20_000 } else { 1 })
-        .flat_map(|_| tracks.iter())
+    let music_pipeline = gst::Pipeline::new();
+    music_pipeline.add(&playbin)?;
+    let playlist_tracks: Vec<String> = tracks
+        .iter()
         .filter_map(|p| url::Url::from_file_path(p).ok().map(|u| u.to_string()))
         .collect();
-    let mut queue_urls: VecDeque<String> = playlist.into();
-    let initial = queue_urls.pop_front().context("empty music playlist")?;
+    let entries = if loop_music {
+        20_000
+    } else {
+        playlist_tracks.len()
+    };
+    let mut playlist = MusicPlaylist::new(playlist_tracks, entries)?;
+    let initial = playlist.next().context("empty music playlist")?;
     playbin.set_property("uri", &initial);
     if loop_music {
-        let shared = Arc::new(Mutex::new(queue_urls));
+        let shared = Arc::new(Mutex::new(playlist));
         playbin.connect("about-to-finish", false, move |args| {
             let element = args[0]
                 .get::<gst::Element>()
                 .expect("playbin signal instance");
-            if let Some(next) = shared.lock().expect("music playlist mutex").pop_front() {
+            if let Some(next) = shared.lock().expect("music playlist mutex").next() {
                 element.set_property("uri", &next);
             }
             None
         });
     }
-    Ok(Some(music_active))
+    Ok(Some(MusicPlayback {
+        pipeline: music_pipeline,
+        active: music_active,
+    }))
 }
 
 fn run_pipeline(output: &str, short: bool, seconds: Option<u64>) -> Result<()> {
-    let desc = pipeline(output, short);
+    let desc = pipeline(output, short, seconds);
     let element = gst::parse::launch(&desc).context("could not build GStreamer pipeline")?;
     let pipeline = element
         .downcast::<gst::Pipeline>()
         .map_err(|_| anyhow!("GStreamer did not return a pipeline"))?;
     let tracks = music_tracks();
-    let music_active = attach_music(&pipeline, &tracks, !short && seconds.is_none())?;
+    let music = attach_music(&pipeline, &tracks, !short && seconds.is_none())?;
     let bus = pipeline.bus().context("pipeline has no bus")?;
     let music_volume = pipeline.by_name("music_volume");
     if short {
         if let Some(volume) = &music_volume {
             volume.set_property("volume", 0.0f64);
+            attach_short_fades(volume)?;
         }
     }
     pipeline.set_state(gst::State::Playing)?;
+    if let Some(music) = &music {
+        music.pipeline.set_state(gst::State::Playing)?;
+    }
+    if let Some(seconds) = seconds {
+        eprintln!("[streamer] finite recording started ({seconds}s)");
+    }
     let started = std::time::Instant::now();
     let deadline = seconds.map(|s| started + Duration::from_secs(s));
+    let mut pipeline_finished = false;
     loop {
         if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
-            break;
-        }
-        if short {
-            if let Some(volume) = &music_volume {
-                let elapsed = started.elapsed().as_secs_f64();
-                let fade_in = (elapsed / 0.5).clamp(0.0, 1.0);
-                let fade_out = if elapsed > 29.5 {
-                    ((31.0 - elapsed) / 1.5).clamp(0.0, 1.0)
-                } else {
-                    1.0
-                };
-                volume.set_property("volume", fade_in * fade_out);
+            if seconds.is_some() {
+                eprintln!("[streamer] finite recording duration reached; draining muxer");
             }
+            break;
         }
         if let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(100)) {
             match message.view() {
-                MessageView::Eos(..) => break,
+                MessageView::Eos(..) => {
+                    pipeline_finished = true;
+                    if seconds.is_some() {
+                        eprintln!("[streamer] finite recording muxer reached EOS");
+                    }
+                    break;
+                }
                 MessageView::Error(e) => {
                     pipeline.set_state(gst::State::Null).ok();
-                    return Err(anyhow!(
+                    let error = anyhow!(
                         "GStreamer {}: {} ({:?})",
                         e.src().map(|s| s.path_string()).unwrap_or_default(),
                         e.error(),
                         e.debug()
-                    ));
+                    );
+                    return Err(redacted_error(&error, output));
                 }
                 _ => {}
             }
         }
     }
-    // A live playbin keeps appsrc fed after the recording deadline. Stop
-    // forwarding samples and end appsrc so the muxer can drain while playbin
-    // consumes the rest of the selected source track.
-    if seconds.is_some() {
-        if let Some(active) = &music_active {
-            active.store(false, Ordering::Relaxed);
+    // Stop music playback at the recording deadline, end appsrc, and let the
+    // muxer drain the buffered audio/video before finalizing the output.
+    if seconds.is_some() && !pipeline_finished {
+        if let Some(music) = &music {
+            eprintln!("[streamer] stopping finite music source");
+            music.active.store(false, Ordering::Relaxed);
+            music.pipeline.set_state(gst::State::Null)?;
+            eprintln!("[streamer] finite music source stopped");
         }
         if let Some(src) = pipeline
             .by_name("music_src")
             .and_then(|src| src.downcast::<AppSrc>().ok())
         {
+            eprintln!("[streamer] ending finite music appsrc");
             src.end_of_stream()?;
         }
     }
-    if seconds.is_some() {
-        if music_active.is_none() {
-            if let Some(source) = pipeline.by_name("silence_source") {
-                source.send_event(gst::event::Eos::new());
-            }
-        }
-        if let Some(source) = pipeline.by_name("video_source") {
-            source.send_event(gst::event::Eos::new());
-        }
-    }
-    let eos_deadline = std::time::Instant::now() + Duration::from_secs(15);
-    loop {
+    let eos_deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !pipeline_finished {
         if let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(250)) {
             match message.view() {
-                MessageView::Eos(..) => break,
+                MessageView::Eos(..) => {
+                    if seconds.is_some() {
+                        eprintln!("[streamer] finite recording muxer reached EOS");
+                    }
+                    break;
+                }
                 MessageView::Error(e) => {
                     pipeline.set_state(gst::State::Null).ok();
-                    return Err(anyhow!(
+                    let error = anyhow!(
                         "GStreamer {}: {} ({:?})",
                         e.src().map(|s| s.path_string()).unwrap_or_default(),
                         e.error(),
                         e.debug()
-                    ));
+                    );
+                    return Err(redacted_error(&error, output));
                 }
                 _ => {}
             }
         }
         if std::time::Instant::now() >= eos_deadline {
             pipeline.set_state(gst::State::Null).ok();
-            anyhow::bail!("GStreamer did not finish muxing before the 15 second deadline");
+            anyhow::bail!("GStreamer did not finish muxing before the 30 second deadline");
         }
     }
     pipeline.set_state(gst::State::Null)?;
+    if let Some(music) = &music {
+        music.pipeline.set_state(gst::State::Null)?;
+    }
     Ok(())
 }
 
@@ -389,6 +520,12 @@ async fn browser_loop(
     let scale = env::var("SCALE")
         .unwrap_or_else(|_| format!("{:.6}", width.parse::<f64>().unwrap_or(2560.0) / 1920.0));
     loop {
+        let user_data = if display == ":98.0" {
+            "/tmp/chromium-short"
+        } else {
+            "/tmp/chromium"
+        };
+        let _ = std::fs::remove_dir_all(user_data);
         let mut browser = Command::new("chromium")
             .args([
                 "--no-sandbox",
@@ -427,8 +564,18 @@ async fn browser_loop(
 }
 
 async fn start_xvfb(display: &str, width: &str, height: &str, log: &str) -> Result<Child> {
+    let display_number = display
+        .strip_prefix(':')
+        .unwrap_or(display)
+        .split('.')
+        .next()
+        .context("invalid X display name")?;
+    let lock = format!("/tmp/.X{display_number}-lock");
+    let socket = format!("/tmp/.X11-unix/X{display_number}");
+    let _ = std::fs::remove_file(lock);
+    let _ = std::fs::remove_file(socket);
     let file = std::fs::File::create(log)?;
-    Ok(Command::new("Xvfb")
+    let mut child = Command::new("Xvfb")
         .args([
             display,
             "-screen",
@@ -441,7 +588,32 @@ async fn start_xvfb(display: &str, width: &str, height: &str, log: &str) -> Resu
         .stdout(file.try_clone()?)
         .stderr(file)
         .kill_on_drop(true)
-        .spawn()?)
+        .spawn()?;
+    let socket = format!("/tmp/.X11-unix/X{display_number}");
+    for _ in 0..50 {
+        if child.try_wait()?.is_some() {
+            anyhow::bail!("Xvfb exited before display {display} became ready");
+        }
+        if UnixStream::connect(&socket).await.is_ok() {
+            return Ok(child);
+        }
+        time::sleep(Duration::from_millis(100)).await;
+    }
+    let _ = child.kill().await;
+    anyhow::bail!("Xvfb display {display} did not become ready within 5 seconds");
+}
+
+fn lower_short_encode_priority() {
+    #[cfg(unix)]
+    {
+        // The Short runs alongside the live stream and must yield CPU to it.
+        if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
+            eprintln!(
+                "[streamer] could not lower Short encoder priority: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
 }
 
 #[tokio::main]
@@ -467,7 +639,8 @@ async fn main() -> Result<()> {
     if env::args().nth(1).as_deref() == Some("encode") {
         let output = env::var("OUTPUT").context("OUTPUT must be set")?;
         let seconds = env::var("RECORD_SECONDS").ok().and_then(|v| v.parse().ok());
-        run_pipeline(&output, true, seconds)?;
+        lower_short_encode_priority();
+        run_pipeline(&output, true, seconds).map_err(|error| redacted_error(&error, &output))?;
         return Ok(());
     }
     if env::args().nth(1).as_deref() == Some("record") {
@@ -497,7 +670,8 @@ async fn main() -> Result<()> {
             24,
         ));
         tokio::time::sleep(Duration::from_secs(10)).await;
-        run_pipeline(&output, true, Some(seconds))?;
+        run_pipeline(&output, true, Some(seconds))
+            .map_err(|error| redacted_error(&error, &output))?;
         let _ = xvfb.kill().await;
         let _ = std::fs::remove_dir_all("/tmp/chromium-short");
         return Ok(());
@@ -562,11 +736,14 @@ async fn main() -> Result<()> {
         })
         .await?;
         if record.is_some() {
-            result?;
+            result.map_err(|error| redacted_error(&error, &output))?;
             break;
         }
         if let Err(error) = result {
-            eprintln!("[streamer] pipeline stopped: {error:#}; reconnecting in 5s");
+            eprintln!(
+                "[streamer] pipeline stopped: {}; reconnecting in 5s",
+                sanitize_stream_error(&format!("{error:#}"), &output)
+            );
         }
         if xvfb.try_wait()?.is_some() {
             return Err(anyhow!("Xvfb stopped"));
@@ -575,4 +752,40 @@ async fn main() -> Result<()> {
     }
     let _ = xvfb.kill().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rtmp_errors_never_include_the_stream_key() {
+        let target = "rtmps://a.rtmp.youtube.com/live2/secret-stream-key";
+        let error = format!("Could not connect to RTMP stream {target}");
+        let safe = sanitize_stream_error(&error, target);
+        assert!(safe.contains("RTMP destination"));
+        assert!(!safe.contains("secret-stream-key"));
+    }
+
+    #[test]
+    fn playlist_is_bounded_and_reshuffles_each_round() {
+        let mut playlist = MusicPlaylist::new(vec!["a".into(), "b".into(), "c".into()], 8).unwrap();
+        let entries: Vec<_> = std::iter::from_fn(|| playlist.next()).collect();
+        assert_eq!(entries.len(), 8);
+        assert_eq!(playlist.remaining, 0);
+        for round in [0..3, 3..6] {
+            let mut tracks = entries[round].to_vec();
+            tracks.sort();
+            assert_eq!(tracks, ["a", "b", "c"]);
+        }
+    }
+
+    #[test]
+    fn short_fades_follow_the_audio_timeline() {
+        assert_eq!(short_fade_gain(0.0), 0.0);
+        assert_eq!(short_fade_gain(0.5), 1.0);
+        assert_eq!(short_fade_gain(29.5), 1.0);
+        assert_eq!(short_fade_gain(31.0), 0.0);
+        assert!(short_fade_gain(30.25) > 0.0 && short_fade_gain(30.25) < 1.0);
+    }
 }

@@ -3,7 +3,7 @@ WORKDIR /build
 COPY Cargo.toml ./
 COPY Cargo.lock ./
 COPY src ./src
-RUN cargo build --release
+RUN cargo build --locked --release
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget \

@@ -9,7 +9,8 @@ param(
   [string]$VideoBitrate = "12000k",
   [string]$BufferSize = "24000k",
   [double]$CpuLimit = 4,
-  [int]$EncodeRuns = 3
+  [int]$EncodeRuns = 3,
+  [string]$AudioTrack = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,44 +23,58 @@ function Get-Percentile([double[]]$Values, [double]$Percentile) {
 
 function Measure-Encode([string]$Image, [string]$Name) {
   $container = "anyps5-encode-$Name"
-  $sampleCpu = [System.Collections.Generic.List[double]]::new()
-  $sampleMem = [System.Collections.Generic.List[double]]::new()
   try {
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    docker run -d --cpus $CpuLimit --name $container -e SHORTS=0 -e "WIDTH=$Width" -e "HEIGHT=$Height" -e FPS=30 -e CAPTURE_FPS=30 -e "VIDEO_BITRATE=$VideoBitrate" -e "BUFSIZE=$BufferSize" -e PRESET=superfast -e OUTPUT=/recordings/bench.mp4 -e "RECORD_SECONDS=$EncodeSeconds" $Image | Out-Null
+    $supervisor = 'set +e; /usr/bin/tini -s -- /usr/local/bin/start.sh; status=$?; awk ''/^usage_usec / {print $2}'' /sys/fs/cgroup/cpu.stat > /recordings/cpu.stat; cat /sys/fs/cgroup/memory.peak > /recordings/memory.peak; exit "$status"'
+    $mountArgs = @()
+    if ($AudioTrack) {
+      $audioPath = (Resolve-Path -LiteralPath $AudioTrack).Path
+      $mountArgs = @('--mount', "type=bind,source=$audioPath,target=/music/benchmark.wav,readonly")
+    }
+    docker run -d --cpus $CpuLimit --name $container --entrypoint /bin/bash @mountArgs -e SHORTS=0 -e "WIDTH=$Width" -e "HEIGHT=$Height" -e FPS=30 -e CAPTURE_FPS=30 -e "VIDEO_BITRATE=$VideoBitrate" -e "BUFSIZE=$BufferSize" -e PRESET=superfast -e OUTPUT=/recordings/bench.mp4 -e "RECORD_SECONDS=$EncodeSeconds" $Image -c $supervisor | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not start encode benchmark for $Image" }
     do {
       Start-Sleep -Seconds 1
       $state = docker inspect $container --format '{{.State.Running}}' 2>$null
-      if ($state -eq "true") {
-        $stats = docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' $container
-        if ($LASTEXITCODE -eq 0 -and $stats -match '^([0-9.]+)%?,([^/]+)') {
-          $sampleCpu.Add([double]$Matches[1])
-          $memText = $Matches[2].Trim()
-          if ($memText -match '^([0-9.]+)([KMG]iB)$') {
-            $scale = switch ($Matches[2]) { 'KiB' {1/1024} 'MiB' {1} 'GiB' {1024} }
-            $sampleMem.Add([double]$Matches[1] * $scale)
-          }
-        }
-      }
     } while ($state -eq "true" -and $timer.Elapsed.TotalSeconds -lt 150)
     $timer.Stop()
     if ($state -eq "true") { throw "Encode benchmark exceeded 150 seconds for $Image" }
     $status = docker inspect $container --format '{{.State.ExitCode}}'
-    if ($status -ne "0") { throw "Encode benchmark exited $status for $Image" }
+    if ($status -ne "0") {
+      $logs = docker logs $container 2>&1 | Out-String
+      throw "Encode benchmark exited $status for $Image`n$logs"
+    }
     $tmp = Join-Path $env:TEMP "anyps5-encode-$Name.mp4"
     docker cp "${container}:/recordings/bench.mp4" $tmp | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "No MP4 output from $Image" }
+    $cpuStat = Join-Path $env:TEMP "anyps5-cpu-$Name.stat"
+    docker cp "${container}:/recordings/cpu.stat" $cpuStat | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No cgroup CPU accounting from $Image" }
+    $cpuLine = Get-Content -LiteralPath $cpuStat -TotalCount 1
+    if ($cpuLine -notmatch '^\s*(\d+)\s*$') { throw "Could not parse cgroup CPU accounting from $Image" }
+    $cpuMicros = [double]$Matches[1]
+    $memoryPeakPath = Join-Path $env:TEMP "anyps5-memory-$Name.peak"
+    docker cp "${container}:/recordings/memory.peak" $memoryPeakPath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No cgroup peak-memory accounting from $Image" }
+    $memoryPeakBytes = [double](Get-Content -LiteralPath $memoryPeakPath -TotalCount 1)
     $file = Get-Item -LiteralPath $tmp
+    $frameOutput = & ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of default=noprint_wrappers=1:nokey=1 $tmp
+    if ($LASTEXITCODE -ne 0 -or $frameOutput -notmatch '^\s*(\d+)\s*$') { throw "Could not count encoded frames for $Image" }
+    $frameCount = [int]$Matches[1]
     $result = [ordered]@{
       image = $Image
       outputSeconds = $EncodeSeconds
       wallSeconds = [Math]::Round($timer.Elapsed.TotalSeconds, 2)
       outputMiB = [Math]::Round($file.Length / 1MB, 2)
-      meanCpuPercent = if ($sampleCpu.Count) { [Math]::Round(($sampleCpu | Measure-Object -Average).Average, 1) } else { $null }
-      peakMemoryMiB = if ($sampleMem.Count) { [Math]::Round(($sampleMem | Measure-Object -Maximum).Maximum, 1) } else { $null }
+      cgroupCpuSeconds = [Math]::Round($cpuMicros / 1000000, 2)
+      cgroupCpuPercentOfWall = if ($timer.Elapsed.TotalSeconds -gt 0) { [Math]::Round($cpuMicros / 1000000 / $timer.Elapsed.TotalSeconds * 100, 1) } else { $null }
+      cgroupMemoryPeakMiB = [Math]::Round($memoryPeakBytes / 1MB, 1)
+      videoFrames = $frameCount
+      averageVideoFps = [Math]::Round($frameCount / $EncodeSeconds, 2)
     }
     Remove-Item -LiteralPath $tmp -Force
+    Remove-Item -LiteralPath $cpuStat -Force
+    Remove-Item -LiteralPath $memoryPeakPath -Force
     return $result
   } finally {
     docker rm -f $container 2>$null | Out-Null

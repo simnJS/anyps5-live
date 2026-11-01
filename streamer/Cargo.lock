@@ -15,6 +15,7 @@ dependencies = [
  "anyhow",
  "gstreamer",
  "gstreamer-app",
+ "libc",
  "reqwest",
  "serde_json",
  "tokio",

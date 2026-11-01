@@ -6,23 +6,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 # The pinned GStreamer 1.22 plugin predates rustc's raw-pointer autoref lint.
 RUN git clone --depth 1 --branch gstreamer-1.22.9 https://github.com/GStreamer/gst-plugins-rs.git /gst-plugins-rs \
- && RUSTFLAGS="-A dangerous_implicit_autorefs" cargo build --release --manifest-path /gst-plugins-rs/audio/audiofx/Cargo.toml --lib \
+ && RUSTFLAGS="-A dangerous_implicit_autorefs" cargo build --locked --release --manifest-path /gst-plugins-rs/audio/audiofx/Cargo.toml --lib \
  && strip --strip-unneeded /gst-plugins-rs/target/release/libgstrsaudiofx.so
 WORKDIR /build
 COPY dashboard/Cargo.toml ./dashboard/Cargo.toml
 COPY dashboard/Cargo.lock ./dashboard/Cargo.lock
 COPY dashboard/src ./dashboard/src
-RUN cargo build --release --manifest-path dashboard/Cargo.toml
+RUN cargo build --locked --release --manifest-path dashboard/Cargo.toml
 COPY streamer/Cargo.toml ./streamer/Cargo.toml
 COPY streamer/Cargo.lock ./streamer/Cargo.lock
 COPY streamer/src ./streamer/src
-RUN cargo build --release --manifest-path streamer/Cargo.toml
+RUN cargo build --locked --release --manifest-path streamer/Cargo.toml
 
 FROM debian:bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      chromium xvfb x11-utils \
+      chromium xvfb \
       fonts-inter fonts-noto-color-emoji fonts-dejavu-core \
       ca-certificates curl tini util-linux \
       libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \

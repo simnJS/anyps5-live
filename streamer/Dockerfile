@@ -4,17 +4,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 # The pinned GStreamer 1.22 plugin predates rustc's raw-pointer autoref lint.
 RUN git clone --depth 1 --branch gstreamer-1.22.9 https://github.com/GStreamer/gst-plugins-rs.git /gst-plugins-rs \
- && RUSTFLAGS="-A dangerous_implicit_autorefs" cargo build --release --manifest-path /gst-plugins-rs/audio/audiofx/Cargo.toml --lib \
+ && RUSTFLAGS="-A dangerous_implicit_autorefs" cargo build --locked --release --manifest-path /gst-plugins-rs/audio/audiofx/Cargo.toml --lib \
  && strip --strip-unneeded /gst-plugins-rs/target/release/libgstrsaudiofx.so
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
-RUN cargo build --release
+RUN cargo build --locked --release
 
 FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      chromium xvfb x11-utils \
+      chromium xvfb \
       fonts-inter fonts-noto-color-emoji fonts-dejavu-core \
       ca-certificates curl tini \
       libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
