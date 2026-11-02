@@ -21,6 +21,10 @@ RUN apt-get update \
       gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
       gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
  && rm -rf /var/lib/apt/lists/* \
+ && rm -f /usr/lib/chromium/libVkLayer_khronos_validation.so \
+       /usr/lib/chromium/libVkLayer_khronos_validation.so.TOC \
+       /usr/lib/chromium/libVkICD_mock_icd.so \
+       /usr/lib/chromium/libVkICD_mock_icd.so.TOC \
  && useradd --create-home --uid 1000 streamer \
  && mkdir -p /music /recordings \
  && chown streamer:streamer /recordings

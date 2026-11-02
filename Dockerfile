@@ -28,7 +28,11 @@ RUN apt-get update \
       libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
       gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
       gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -f /usr/lib/chromium/libVkLayer_khronos_validation.so \
+       /usr/lib/chromium/libVkLayer_khronos_validation.so.TOC \
+       /usr/lib/chromium/libVkICD_mock_icd.so \
+       /usr/lib/chromium/libVkICD_mock_icd.so.TOC
 
 WORKDIR /app
 COPY --from=build /build/dashboard/target/release/anyps5-live-dashboard /usr/local/bin/dashboard

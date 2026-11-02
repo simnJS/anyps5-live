@@ -10,7 +10,7 @@ Encode runs use the same generated 440 Hz, 44.1 kHz stereo WAV track for both im
 
 | Measure | Upstream Node + FFmpeg | Rust + GStreamer | Change |
 |---|---:|---:|---:|
-| Container image | 1,596.3 MiB | 1,429.3 MiB | 10.5% smaller |
+| Container image | 1,596.3 MiB | 1,400.6 MiB | 12.3% smaller |
 | Encode job wall time | 34.10 s | 31.58 s | 7.4% faster |
 | Cgroup CPU time | 14.01 s | 9.58 s | 31.6% lower |
 | Peak cgroup memory | 1,678.2 MiB | 800.0 MiB | 52.3% lower |
@@ -32,6 +32,8 @@ The dashboard pass used the same images on the same host. Figures below are medi
 | `/api/state` response | 41,410 bytes | 42,012 bytes | 1.5% larger |
 
 The measured API response was 1.5% larger; serialized content includes dynamic source metadata and timestamps. Idle-memory samples varied substantially between repeat runs, so the median is shown and should not be read as a tight bound. API timings are short local requests and do not predict remote network latency.
+
+The final image also removes Chromium's unused Vulkan validation layer and mock ICD binaries while retaining the SwiftShader runtime. This reduced the image by 28.8 MiB from the previous Rust image. A finite 720p GStreamer capture still completed with 90 frames, and the dashboard health and static routes returned HTTP 200.
 
 ## GStreamer video path
 
