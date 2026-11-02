@@ -41,6 +41,8 @@ The live capture already matches the configured Xvfb output dimensions. The pipe
 
 Compared with the previous Rust image (`04217e4`), three paired finite encodes kept the same 450 frames and 21.41 MiB output. Median wall time moved from 31.90 to 31.58 seconds (1.0% faster), cgroup CPU from 11.89 to 10.99 seconds (7.6% lower), and peak memory from 839.8 to 800.0 MiB (4.7% lower). These are modest differences and should be treated as directional; the primary gain remains the full comparison against FFmpeg above.
 
+A follow-up thread-pool experiment compared the shipped 4-thread converter / 4-thread x264 setup against a 1-thread converter / 4-thread x264 setup in six paired 15-second runs. Both produced 450 frames and 21.41 MiB files. Median wall time was 31.81 vs 31.87 seconds, cgroup CPU was 11.95 vs 11.20 seconds, and peak cgroup memory was 803.7 vs 809.9 MiB. The CPU reduction did not translate into faster completion or smaller peak memory, so the split-thread setting was not retained.
+
 ## Dashboard hot-path refactor
 
 Compared with the previous Rust revision (`c70fa35`), the new collector and response hot paths were measured in three paired 40-request dashboard passes and five paired encode runs. Medians of the three dashboard passes show `/api/state` median latency improving from 1.29 ms to 1.02 ms and p95 from 1.61 ms to 1.29 ms. Response size matched in every paired pass (42,270 or 42,273 bytes). Median health readiness was 1.481 vs 1.489 seconds. The five encode runs had medians of 34.13 vs 34.16 seconds, 8.27 vs 8.34 cgroup CPU seconds, and 728.5 vs 737.3 MiB peak cgroup memory; every output remained 21.41 MiB with all 450 frames. Those encode differences are below 1.3% and the video pipeline itself is unchanged.
