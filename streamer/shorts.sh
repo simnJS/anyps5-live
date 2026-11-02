@@ -6,8 +6,6 @@ set -uo pipefail
 SHORTS_DIR="${SHORTS_DIR:-/recordings/shorts}"
 SHORT_HOUR_UTC="${SHORT_HOUR_UTC:-18}"
 SHORT_DISPLAY=:98
-TOKEN_URL="${GOOGLE_TOKEN_URL:-https://oauth2.googleapis.com/token}"
-UPLOAD_URL="${YOUTUBE_UPLOAD_URL:-https://www.googleapis.com/upload/youtube/v3/videos}"
 MAX_UPLOAD_TRIES=3
 
 log() { echo "[shorts] $(date -u +%H:%M:%S) $*"; }
@@ -36,12 +34,8 @@ record() {
     track=${tracks[RANDOM % ${#tracks[@]}]}
     audio=(-i "$track")
   fi
-  nice -n 10 ffmpeg -hide_banner -loglevel error -nostats -y \
-    -f x11grab -draw_mouse 0 -framerate 30 -video_size 1080x1920 -i "${SHORT_DISPLAY}.0" \
-    "${audio[@]}" -map 0:v -map 1:a -t 31 \
-    -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p \
-    -af "loudnorm=I=-27:TP=-2:LRA=11,afade=t=in:d=0.5,afade=t=out:st=29.5:d=1.5" -c:a aac -b:a 160k -ar 44100 -ac 2 \
-    -movflags +faststart "$file.part.mp4"
+  DISPLAY="${SHORT_DISPLAY}.0" WIDTH=1080 HEIGHT=1920 AUDIO_BITRATE=160k RECORD_SECONDS=31 TRACK="${track:-}" \
+    OUTPUT="$file.part.mp4" /usr/local/bin/anyps5-live-streamer encode
   status=$?
   kill "$browser" "$xvfb" 2>/dev/null
   wait "$browser" "$xvfb" 2>/dev/null
@@ -53,19 +47,8 @@ record() {
 can_upload() { [ -n "${YOUTUBE_CLIENT_ID:-}" ] && [ -n "${YOUTUBE_CLIENT_SECRET:-}" ] && [ -n "${YOUTUBE_REFRESH_TOKEN:-}" ]; }
 
 upload() {
-  local file=$1 token location response id privacy
-  token=$(curl -fsS --max-time 30 "$TOKEN_URL" -d "client_id=$YOUTUBE_CLIENT_ID" -d "client_secret=$YOUTUBE_CLIENT_SECRET" -d "refresh_token=$YOUTUBE_REFRESH_TOKEN" -d grant_type=refresh_token \
-    | sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p')
-  [ -n "$token" ] || { log "No access token: check the OAuth client and refresh token"; return 1; }
-  location=$(curl -fsS --max-time 60 -D - -o /dev/null -X POST "$UPLOAD_URL?uploadType=resumable&part=snippet,status" \
-    -H "Authorization: Bearer $token" -H "Content-Type: application/json; charset=UTF-8" \
-    -H "X-Upload-Content-Type: video/mp4" -H "X-Upload-Content-Length: $(stat -c %s "$file")" --data "@$file.json" \
-    | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
-  [ -n "$location" ] || { log "YouTube refused the upload"; return 1; }
-  response=$(curl -fsS --max-time 900 -X PUT "$location" -H "Authorization: Bearer $token" -H "Content-Type: video/mp4" --upload-file "$file") || { log "Upload failed"; return 1; }
-  id=$(printf '%s' "$response" | tr -d '\n' | sed -n 's/^{[^}]*"id" *: *"\([^"]*\)".*/\1/p')
-  privacy=$(printf '%s' "$response" | tr -d '\n' | sed -n 's/.*"privacyStatus" *: *"\([^"]*\)".*/\1/p')
-  log "Uploaded https://www.youtube.com/shorts/$id (${privacy:-unknown privacy})"
+  local file=$1
+  /usr/local/bin/anyps5-live-streamer upload-short "$file" || { log "Upload failed"; return 1; }
 }
 
 make_short() {
@@ -73,7 +56,7 @@ make_short() {
   if [ ! -f "$file" ]; then
     log "Recording $file"
     record "$file" || { log "Recording failed"; return; }
-    curl -fsS --max-time 15 "${DASHBOARD_URL%/}/api/short-meta" -o "$file.json" || log "Could not read the title"
+    /usr/local/bin/anyps5-live-streamer short-meta > "$file.json" || log "Could not read the title"
     ls -1t "$SHORTS_DIR"/*.mp4 2>/dev/null | tail -n +15 | while read -r old; do rm -f "$old" "$old.json" "$old.uploaded" "$old.tries"; done
   fi
   can_upload && [ -f "$file.json" ] && [ ! -f "$file.uploaded" ] || return

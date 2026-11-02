@@ -1,6 +1,8 @@
 .env
 node_modules/
 dashboard/dist/
+dashboard/target/
+**/target/
 dashboard/data/
 recordings/
 music/*

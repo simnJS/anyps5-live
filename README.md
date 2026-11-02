@@ -9,10 +9,11 @@ An unofficial community project: it is not affiliated with the AnyPS5 maintainer
 ## What is on screen
 
 - **Header**: the next milestone (functions to go, estimated from the 7-day pace) and a countdown to the next scene.
-- **Rotating scenes**: the dashboard for 45 seconds, then one full-screen scene for 25 seconds, readable on a phone: a spotlight on games reaching gameplay (the best-known ones come back most often), the next milestone, top contributors, the biggest gains.
+- **Rotating scenes**: the dashboard for 45 seconds, then one full-screen scene for 25 seconds, readable on a phone: a game spotlight, the next milestone, top contributors, the biggest gains.
 - **Alerts**: a card slides in for each new merged PR, new game report, finished library and new release. Each 1,000th function gets a full-screen celebration.
-- **Chat commands**: viewers type `!game <name>` to see how far a game got (short names like `gta v` work), `!lib <name>` for a system library, `!next` for the next goal, `!top` for the day's top contributor, `!random` for a game reaching gameplay, `!discord` for a code to join the Discord, or `!help`. The answer slides in on screen with their name: within about 75 seconds for the first command, then within seconds for the next 3 minutes. What viewers type is never shown. Set `CHAT_COMMANDS=1` to turn them on. Every `CHAT_REMINDER_MINUTES`, the channel posts a reminder of the commands in the chat, when the OAuth values are set.
-- **Calls to action**: a like, subscribe, Discord or chat command card every 3 minutes and after each milestone, and a live like goal beside the title once `YOUTUBE_API_KEY` and `YOUTUBE_VIDEO_ID` are set.
+- **Chat commands**: viewers can ask `!game`, `!lib`, `!next`, `!top`, `!random`, `!discord` or `!help`; answers appear on screen. The first answer can take up to the configured poll interval, and after a command the chat stream stays open for a fast burst. Enable with `CHAT_COMMANDS=1`.
+- **Calls to action**: a like, subscribe, Discord or chat reminder every 3 minutes and after each milestone, plus a live like goal when `YOUTUBE_API_KEY` and `YOUTUBE_VIDEO_ID` are set.
+- **GTA VI page**: a separate countdown screen with AnyPS5 readiness, Rockstar game reports, the live library map and latest project activity (`PAGE=gta6.html`).
 
 The dashboard scene shows:
 
@@ -22,28 +23,26 @@ The dashboard scene shows:
 - **Functions over time**: implemented and declared functions since the project started publishing its history.
 - **Major changes**: big daily jumps, milestones, completed libraries, new releases and new libraries, named by what they do where known.
 - **Furthest point reported**: the game bring-up threads by the stage their first report reached.
+- **Chat answers**: recent on-screen responses at `/api/chat`, read by the browser every two seconds.
 - A UTC clock in the corner.
 
 ## How it works
 
 ```
                  ┌──────────────────────────────┐        ┌──────────────────────────────────┐
- GitHub API ───► │ dashboard (Node 22)          │  HTTP  │ streamer                         │  RTMP
+ GitHub API ───► │ dashboard (Rust)              │  HTTP  │ streamer                         │  RTMP
  Pages JSON ───► │ collects, detects events,    │ ─────► │ Xvfb + Chromium (kiosk 1920×1080)│ ─────► YouTube
- Discussions ──► │ serves / and /api/state      │        │ ffmpeg x11grab → H.264 + AAC     │
+ Discussions ──► │ serves / and /api/state      │        │ GStreamer Rust bindings → H.264 + AAC │
                  │ volume: daily snapshots      │        │ restarts itself on failure       │
                  └──────────────────────────────┘        └──────────────────────────────────┘
 ```
 
 | Data | Source | Refresh (with token / without) |
 |---|---|---|
-| Progress, per-library counts | `https://boykopovar.github.io/AnyPS5/progress.json` | 10 / 15 min |
-| History | `https://boykopovar.github.io/AnyPS5/history.json` | 30 min |
-| Merged PRs and their progress reports | GitHub REST API | 2 / 6 min |
-| Open PRs, merges per period | GitHub search API | 5 / 10 min |
-| Stars, latest release | GitHub REST API | 10 / 30 min |
-| Games by stage | AnyPS5's [Game bring-up discussions](https://github.com/boykopovar/AnyPS5/discussions/categories/game-bring-up), GitHub GraphQL API | 10 min / not available |
-| Game covers | `https://alxcbtw.github.io/anyps5-roadmap/roadmap.json` (archived on 24 October 2026; only its images are used) | 3 h |
+| Progress, history, libraries, PRs/reports, stars, releases and merge counts | AnyPS5 Pages JSON and GitHub REST/search APIs | 5 / 10 min |
+| Game stages and covers | AnyPS5's [Game bring-up discussions](https://github.com/boykopovar/AnyPS5/discussions/categories/game-bring-up), GitHub GraphQL API, and the archived roadmap image JSON | 10 min / not available |
+| Live likes and viewers | YouTube Data API v3 (when `YOUTUBE_API_KEY` and `YOUTUBE_VIDEO_ID` are set) | 1 min |
+| Live chat commands and reminders | YouTube live chat streaming API (commands require `CHAT_COMMANDS=1`; reminders also require YouTube OAuth) | configurable |
 
 The dashboard keeps one snapshot of every library per day in the `dashboard-data` volume. Comparing snapshots is what finds new libraries, newly discovered exports and completed libraries as they happen. History-based events (export waves, big jumps, milestones) are there from the first minute.
 
@@ -98,6 +97,7 @@ docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:
   Then open <http://localhost:8080> in a window sized 1920×1080.
 
 - **See one scene or alert**: add `?scene=games` (or `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
+- **Preview the GTA VI screen**: open `http://localhost:8080/gta6.html` or stream it with `PAGE=gta6.html`.
 
 - **Record 30 seconds to a file** instead of streaming:
 
@@ -117,7 +117,11 @@ docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:
 | Stop everything | `docker compose down` (the snapshots stay in the volume) |
 | Current state as JSON | `curl -s http://127.0.0.1:8080/api/state` |
 
-**Soundtrack**: YouTube requires an audio track, so the streamer sends silence by default. Put `.mp3`, `.m4a`, `.ogg`, `.flac` or `.wav` files in `./music` to play them in shuffled order instead, then restart the streamer; their loudness is evened out. Use only music you have the rights to stream. In single-container mode, mount the folder on `/music`.
+**Soundtrack**: put `.mp3`, `.m4a`, `.ogg`, `.flac`, or `.wav` tracks in `./music`. The Rust GStreamer pipeline shuffles the playlist and applies EBU R128 loudness normalization (`-22 LUFS`, `-2 dBTP`, `11 LU`) to music. Shorts select one available track and fade it in and out. With no files, the stream uses silence.
+
+## Rust rebuild benchmarks
+
+The same-host comparison against the original fork measures image size, startup, API latency, memory and a finite encode job. Results and the reproducible PowerShell benchmark are in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Daily Short
 
@@ -126,7 +130,7 @@ Every day from `SHORT_HOUR_UTC`, the streamer records a 30-second vertical video
 To upload it automatically:
 
 1. In a Google Cloud project, enable the *YouTube Data API v3* and create an OAuth client of type *Desktop app*. Set the consent screen's publishing status to **In production**: in *Testing*, the refresh token stops working after 7 days.
-2. Run `node tools/youtube-auth.mjs <client id> <client secret>` on a computer with a browser, and sign in as the channel's owner.
+2. Run `cargo run --manifest-path tools/Cargo.toml -- <client id> <client secret>` on a computer with a browser, and sign in as the channel's owner.
 3. Set `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` and `YOUTUBE_REFRESH_TOKEN`, then restart.
 
 The logs give each Short's URL and privacy. YouTube can lock uploads from an unaudited API project as private: if they come back `private` while `SHORT_PRIVACY` is `public`, the project needs YouTube's [API audit](https://support.google.com/youtube/contact/yt_api_form).
@@ -151,20 +155,22 @@ docker compose run --rm --entrypoint chromium streamer --headless=new --no-sandb
 | `WIDTH` / `HEIGHT` | `2560` / `1440` | Output resolution. The 1920×1080 page is rendered at this size rather than scaled up, so it stays sharp |
 | `FPS` / `CAPTURE_FPS` | `30` / `30` | Output and capture frame rates. YouTube needs a steady 30 fps at a constant bitrate. A lower capture rate repeats frames, which saves some CPU but makes the animations stutter |
 | `VIDEO_BITRATE` / `BUFSIZE` / `PRESET` | `12000k` / `24000k` / `superfast` | Encoder settings, constant bitrate |
-| `YOUTUBE_API_KEY` / `YOUTUBE_VIDEO_ID` | | Reads the live's likes every 2 minutes for the like goal |
-| `CHAT_COMMANDS` / `CHAT_POLL_SECONDS` / `CHAT_BURST_MINUTES` / `CHAT_DAILY_UNITS` | `0` / `75` / `3` / `8000` | Answers the chat commands on screen. YouTube closes a quiet chat stream after about 10 seconds and each opening costs 5 of the key's 10,000 daily units, so the stream opens every `CHAT_POLL_SECONDS`, and stays open for `CHAT_BURST_MINUTES` after a command, within `CHAT_DAILY_UNITS` a day. Needs the API key and video ID |
-| `CHAT_REMINDER_MINUTES` | `60` | Posts a reminder of the commands in the chat as the channel, 50 API units each. `0` turns it off. Needs the OAuth values with the `youtube.force-ssl` scope |
+| `WARMUP_SECONDS` | `15` | Browser render warm-up before video capture |
+| `YOUTUBE_API_KEY` / `YOUTUBE_VIDEO_ID` | | Reads the live's likes each minute for the like goal |
+| `CHAT_COMMANDS` | `0` | Enables on-screen `!game`, `!lib`, `!next`, `!top`, `!random`, `!discord` and `!help` answers. Needs the YouTube API key and video ID |
+| `CHAT_POLL_SECONDS` / `CHAT_BURST_MINUTES` / `CHAT_DAILY_UNITS` | `75` / `3` / `8000` | Opens a YouTube chat stream on this idle interval; after a command it reconnects within seconds for the burst window, capped by daily API units |
+| `CHAT_REMINDER_MINUTES` | `60` | Posts command reminders in chat. Set to `0` to turn off; needs YouTube OAuth values with the `youtube.force-ssl` scope |
 | `SHORTS` / `SHORT_HOUR_UTC` / `SHORT_PRIVACY` | `1` / `18` / `public` | The daily Short: on or off, the hour it is made, and its privacy on YouTube |
 | `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` / `YOUTUBE_REFRESH_TOKEN` | | Uploads the daily Short |
-| `PAGE` | | Streams another page of the dashboard, such as `gta6.html`, instead of the main screen. It needs its own YouTube stream key |
 | `PORT` | `8080` (`3000` in the single-container image) | Dashboard port |
 | `ANYPS5_REPO` | `boykopovar/AnyPS5` | Repository to follow (dashboard) |
 | `ANYPS5_PAGES` | `https://boykopovar.github.io/AnyPS5` | Where `progress.json` and `history.json` are published |
 | `ROADMAP_URL` | `https://alxcbtw.github.io/anyps5-roadmap` | Where the game cover images come from |
+| `PAGE` | | Opens a dashboard page other than the main screen, for example `gta6.html` |
 
 ## Troubleshooting
 
-- **YouTube says "No data"**: check the stream key, that outbound port 1935 is open, and `docker compose logs streamer` for ffmpeg errors.
+- **YouTube says "No data"**: check the stream key, that outbound port 1935 is open, and `docker compose logs streamer` for GStreamer errors.
 - **Black or frozen picture**: `docker compose exec streamer cat /tmp/chromium.log`. The compose file gives the streamer 1 GB of shared memory, which Chromium needs.
 - **Blurry on YouTube**: YouTube re-encodes every stream. From a 1080p input it serves low-bitrate H.264, which smears the library map's thousands of cells; from 1440p it serves sharper VP9 encodes at every quality, 1080p included. Keep the default 1440p, and keep the stream latency on *Normal*.
 - **High CPU**: the encoder works on every output frame, repeated or not. Use `PRESET=ultrafast`, or stream 1080p (`WIDTH=1920 HEIGHT=1080 VIDEO_BITRATE=6000k`).
@@ -175,8 +181,7 @@ docker compose run --rm --entrypoint chromium streamer --headless=new --no-sandb
 
 ```bash
 cd dashboard
-npm install
-npm run dev          # http://localhost:8080, data kept in dashboard/data
+cargo run            # http://localhost:8080, data kept in dashboard/data
 ```
 
 ## License

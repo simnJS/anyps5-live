@@ -1,24 +1,21 @@
-FROM node:22-alpine AS build
-WORKDIR /app
-COPY package.json package-lock.json tsconfig.json ./
-RUN npm ci --no-audit --no-fund
+FROM rust:1-bookworm AS build
+WORKDIR /build
+COPY Cargo.toml ./
+COPY Cargo.lock ./
 COPY src ./src
-RUN npx tsc -p tsconfig.json
+RUN cargo build --locked --release
 
-FROM node:22-alpine
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 1000 app \
+ && mkdir -p /data && chown app:app /data
 WORKDIR /app
-ENV NODE_ENV=production \
-    DATA_DIR=/data \
-    PORT=8080
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
-COPY --from=build /app/dist ./dist
+COPY --from=build /build/target/release/anyps5-live-dashboard /usr/local/bin/dashboard
 COPY public ./public
-COPY proto ./proto
-RUN mkdir -p /data && chown node:node /data
-USER node
+ENV DATA_DIR=/data PORT=8080 PUBLIC_DIR=/app/public
+USER app
 VOLUME /data
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
-CMD ["node", "dist/server.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
+CMD ["dashboard"]

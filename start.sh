@@ -4,15 +4,15 @@
 set -euo pipefail
 
 if [ "$(id -u)" = 0 ]; then
-  # A bind-mounted data folder is created by Docker as root: hand it to the node user first.
+  # A bind-mounted data folder is created by Docker as root: hand it to the app user first.
   mkdir -p "$DATA_DIR" /recordings
-  chown node:node "$DATA_DIR" /recordings
-  export HOME=/home/node USER=node
-  exec setpriv --reuid=node --regid=node --init-groups "$0" "$@"
+  chown app:app "$DATA_DIR" /recordings
+  export HOME=/home/app USER=app
+  exec setpriv --reuid=app --regid=app --init-groups "$0" "$@"
 fi
 
 export DASHBOARD_URL="http://127.0.0.1:${PORT}/"
-node /app/dist/server.js &
+dashboard &
 
 if [ -z "${YOUTUBE_STREAM_KEY:-}" ] && [ -z "${OUTPUT:-}" ]; then
   echo "[start] YOUTUBE_STREAM_KEY is not set: serving the dashboard only, nothing is streamed."
