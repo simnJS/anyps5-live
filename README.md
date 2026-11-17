@@ -1,18 +1,26 @@
 # AnyPS5 Live
 
-A 24/7 YouTube live stream that shows the progress of [AnyPS5](https://github.com/boykopovar/AnyPS5) as a monitoring screen. Everything runs in Docker on a VPS: one container collects the data and serves a 1920×1080 dashboard, the other renders it in a headless browser and streams it to YouTube.
+24/7 YouTube live monitor of AnyPS5 progress: a Rust dashboard and a headless Chromium and ffmpeg streamer, in Docker.
 
 ![The live screen](thumbnail.png)
 
+## What it is
+
+A 24/7 YouTube live stream that shows the progress of [AnyPS5](https://github.com/boykopovar/AnyPS5) as a monitoring screen. Everything runs in Docker on a VPS: one container collects the data and serves a 1920×1080 dashboard, the other renders it in a headless browser and streams it to YouTube. It also records a daily vertical Short and can upload it to YouTube.
+
 An unofficial community project: it is not affiliated with the AnyPS5 maintainers or with Sony, and it only reads AnyPS5's public data.
 
-## What is on screen
+## Features
+
+### On screen
 
 - **Header**: the next milestone (functions to go, estimated from the 7-day pace) and a countdown to the next scene.
 - **Rotating scenes**: the dashboard for 45 seconds, then one full-screen scene for 25 seconds, readable on a phone: a spotlight on games reaching gameplay (the best-known ones come back most often), the next milestone, top contributors, the biggest gains.
 - **Alerts**: a card slides in for each new merged PR, new game report, finished library and new release. Each 1,000th function gets a full-screen celebration.
 - **Chat commands**: viewers type `!game <name>` to see how far a game got (short names like `gta v` work), `!lib <name>` for a system library, `!next` for the next goal, `!top` for the day's top contributor, `!random` for a game reaching gameplay, `!discord` for a code to join the Discord, or `!help`. The answer slides in on screen with their name: within about 75 seconds for the first command, then within seconds for the next 3 minutes. What viewers type is never shown. Set `CHAT_COMMANDS=1` to turn them on. Every `CHAT_REMINDER_MINUTES`, the channel posts a reminder of the commands in the chat, when the OAuth values are set.
 - **Calls to action**: a like, subscribe, Discord or chat command card every 3 minutes and after each milestone, and a live like goal beside the title once `YOUTUBE_API_KEY` and `YOUTUBE_VIDEO_ID` are set.
+
+### Dashboard scene
 
 The dashboard scene shows:
 
@@ -23,6 +31,67 @@ The dashboard scene shows:
 - **Major changes**: big daily jumps, milestones, completed libraries, new releases and new libraries, named by what they do where known.
 - **Furthest point reported**: the game bring-up threads by the stage their first report reached.
 - A UTC clock in the corner.
+
+## Getting started
+
+### Prerequisites
+
+- A VPS with Docker Engine and the Compose plugin.
+- About 4 vCPU (5 during scene changes) and 2 GB of RAM for the default 1440p at 30 fps (`PRESET=superfast`).
+- Outbound TCP 1935 (RTMP) and about 13 Mbit/s of upload.
+
+### Configure
+
+1. **YouTube**: in YouTube Studio, choose *Create → Go live → Stream*. Copy the stream key. For a 24/7 stream, turn on *Auto-start*, turn off *Auto-stop*, keep latency on *Normal* and enable DVR. A channel that has never streamed may need to be verified and wait up to 24 hours before live streaming is enabled.
+2. **GitHub token** (optional, recommended): create a fine-grained token at <https://github.com/settings/personal-access-tokens/new> with *Public repositories (read-only)* access and no permissions. Without it the dashboard still works, but stays within 60 API requests per hour and shows no game data, since GitHub's GraphQL API requires a token.
+
+Then fill in `.env` (copied from `.env.example`); the variables are described in the [configuration reference](#configuration-reference).
+
+### Run
+
+```bash
+git clone <this repository> anyps5-live && cd anyps5-live
+cp .env.example .env
+nano .env            # YOUTUBE_STREAM_KEY, GITHUB_TOKEN
+docker compose up -d --build
+docker compose logs -f streamer
+```
+
+The streamer waits for the dashboard's health check, starts the browser, then begins streaming. YouTube shows the preview within a minute.
+
+### Run in a single container
+
+Some platforms build one Dockerfile and run one service (Coolify, Dokku, a self-hosted hub that deploys a GitHub repository on every push). For those, the `Dockerfile` at the root of the repository builds an image that runs the dashboard and the streamer together:
+
+- Dockerfile: `Dockerfile`, build context: the repository root.
+- Environment: `YOUTUBE_STREAM_KEY`, and optionally `GITHUB_TOKEN` and the encoder settings from the [configuration reference](#configuration-reference). Without a stream key, the container only serves the dashboard.
+- Port: the dashboard listens on `3000` (change it with `PORT`). Expose it only if you want to see the screen in a browser; the stream does not need it.
+- Persistent data: mount a volume on `/data` to keep the daily snapshots across redeploys.
+
+```bash
+docker build -t anyps5-live .
+docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:/data anyps5-live
+```
+
+### Preview and test without going live
+
+- **See the dashboard** from your computer through an SSH tunnel:
+
+  ```bash
+  ssh -L 8080:127.0.0.1:8080 user@your-vps
+  ```
+
+  Then open <http://localhost:8080> in a window sized 1920×1080.
+
+- **See one scene or alert**: add `?scene=games` (or `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
+
+- **Record 30 seconds to a file** instead of streaming:
+
+  ```bash
+  docker compose run --rm -e OUTPUT=/recordings/test.mp4 -e RECORD_SECONDS=30 streamer
+  ```
+
+  The file appears in `./recordings/test.mp4`.
 
 ## How it works
 
@@ -50,62 +119,6 @@ The dashboard keeps one snapshot of every library per day in the `dashboard-data
 A game's stage is the "Furthest point" of the first report in its thread, read from the discussion's form. Later replies are not read, so the counts can lag behind, and a thread whose first report gives no recognisable stage counts as reported but in no stage. "In game" means gameplay was reached, not that the game is playable from start to finish.
 
 The browser page refreshes its data every 15 seconds and reloads itself every 6 hours; Chromium is restarted every 24 hours to keep memory flat.
-
-## Requirements
-
-- A VPS with Docker Engine and the Compose plugin.
-- About 4 vCPU (5 during scene changes) and 2 GB of RAM for the default 1440p at 30 fps (`PRESET=superfast`).
-- Outbound TCP 1935 (RTMP) and about 13 Mbit/s of upload.
-
-## Set up
-
-1. **YouTube**: in YouTube Studio, choose *Create → Go live → Stream*. Copy the stream key. For a 24/7 stream, turn on *Auto-start*, turn off *Auto-stop*, keep latency on *Normal* and enable DVR. A channel that has never streamed may need to be verified and wait up to 24 hours before live streaming is enabled.
-2. **GitHub token** (optional, recommended): create a fine-grained token at <https://github.com/settings/personal-access-tokens/new> with *Public repositories (read-only)* access and no permissions. Without it the dashboard still works, but stays within 60 API requests per hour and shows no game data, since GitHub's GraphQL API requires a token.
-3. **Deploy**:
-
-   ```bash
-   git clone <this repository> anyps5-live && cd anyps5-live
-   cp .env.example .env
-   nano .env            # YOUTUBE_STREAM_KEY, GITHUB_TOKEN
-   docker compose up -d --build
-   docker compose logs -f streamer
-   ```
-
-   The streamer waits for the dashboard's health check, starts the browser, then begins streaming. YouTube shows the preview within a minute.
-
-### Single container
-
-Some platforms build one Dockerfile and run one service (Coolify, Dokku, a self-hosted hub that deploys a GitHub repository on every push). For those, the `Dockerfile` at the root of the repository builds an image that runs the dashboard and the streamer together:
-
-- Dockerfile: `Dockerfile`, build context: the repository root.
-- Environment: `YOUTUBE_STREAM_KEY`, and optionally `GITHUB_TOKEN` and the encoder settings below. Without a stream key, the container only serves the dashboard.
-- Port: the dashboard listens on `3000` (change it with `PORT`). Expose it only if you want to see the screen in a browser; the stream does not need it.
-- Persistent data: mount a volume on `/data` to keep the daily snapshots across redeploys.
-
-```bash
-docker build -t anyps5-live .
-docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:/data anyps5-live
-```
-
-## Preview and test without going live
-
-- **See the dashboard** from your computer through an SSH tunnel:
-
-  ```bash
-  ssh -L 8080:127.0.0.1:8080 user@your-vps
-  ```
-
-  Then open <http://localhost:8080> in a window sized 1920×1080.
-
-- **See one scene or alert**: add `?scene=games` (or `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
-
-- **Record 30 seconds to a file** instead of streaming:
-
-  ```bash
-  docker compose run --rm -e OUTPUT=/recordings/test.mp4 -e RECORD_SECONDS=30 streamer
-  ```
-
-  The file appears in `./recordings/test.mp4`.
 
 ## Operate
 
@@ -139,7 +152,10 @@ The logs give each Short's URL and privacy. YouTube can lock uploads from an una
 docker compose run --rm --entrypoint chromium streamer --headless=new --no-sandbox --disable-gpu   --hide-scrollbars --window-size=1280,720 --virtual-time-budget=20000   --screenshot=/recordings/thumbnail.png http://dashboard:8080/thumbnail.html
 ```
 
-## Configuration
+## Configuration reference
+
+All variables go in `.env` (see `.env.example`).
+
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -169,15 +185,24 @@ docker compose run --rm --entrypoint chromium streamer --headless=new --no-sandb
 - **Blurry on YouTube**: YouTube re-encodes every stream. From a 1080p input it serves low-bitrate H.264, which smears the library map's thousands of cells; from 1440p it serves sharper VP9 encodes at every quality, 1080p included. Keep the default 1440p, and keep the stream latency on *Normal*.
 - **High CPU**: the encoder works on every output frame, repeated or not. Use `PRESET=ultrafast`, or stream 1080p (`WIDTH=1920 HEIGHT=1080 VIDEO_BITRATE=6000k`).
 - **YouTube: "not receiving enough video"**: keep `FPS=30` and the constant bitrate; YouTube's ingest does not accept a very low frame rate or a mostly empty bitrate.
-- **Panels show "—"**: a source is slow or rate-limited. `curl -s http://127.0.0.1:8080/api/state` lists every source with its last success and error under `sources`. Add a `GITHUB_TOKEN`, or wait for the next refresh; the last good data stays on screen.
+- **Panels show a dash instead of a value**: a source is slow or rate-limited. `curl -s http://127.0.0.1:8080/api/state` lists every source with its last success and error under `sources`. Add a `GITHUB_TOKEN`, or wait for the next refresh; the last good data stays on screen.
 
-## Develop locally
+## Development
 
 ```bash
 cd dashboard
 cargo test --locked
 cargo run --locked   # http://localhost:8080, data kept in dashboard/data
 ```
+
+The [Rust dashboard workflow](.github/workflows/rust-dashboard.yml) checks the locked dependencies, tests and formatting, builds the dashboard image and the single-container image, and smoke-tests the dashboard API and static pages.
+
+## Tech stack
+
+- Rust dashboard: Axum, tokio, reqwest (rustls), tonic and prost (YouTube live chat over gRPC), chrono
+- Plain HTML, CSS and JavaScript pages in `dashboard/public`
+- Streamer: Xvfb, Chromium in kiosk mode and ffmpeg (x11grab, H.264 and AAC over RTMP) on Debian bookworm
+- Docker and Docker Compose; a Node.js helper (`tools/youtube-auth.mjs`) for the YouTube OAuth refresh token
 
 ## License
 
