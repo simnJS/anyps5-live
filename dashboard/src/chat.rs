@@ -121,9 +121,9 @@ const STAGES: [&str; 5] = [
     "In game",
 ];
 const DISCORD: &str = "discord.gg/BHFztBPUe";
-pub const CHAT_REMINDER: &str = "💬 Ask the stream: !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
+pub const CHAT_REMINDER: &str = "💬 Ask the stream: !gta for GTA VI on AnyPS5, !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
 static COMMAND_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)^!(game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap()
+    regex::Regex::new(r"(?i)^!(gta|game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap()
 });
 
 fn roman_digit(word: &str) -> &str {
@@ -304,22 +304,17 @@ fn game_answer(id: &str, kicker: &str, query: &str, threads: &[Value]) -> Value 
         })
         .map(|x| x.0);
     if (wanted == "grand theft auto 6" || wanted.starts_with("grand theft auto 6 "))
-        && found.is_none()
+        && (found.is_none() || !crate::gta6::reports_count())
     {
-        let remaining_ms = DateTime::parse_from_rfc3339("2026-11-19T00:00:00Z")
-            .unwrap()
-            .timestamp_millis()
-            - Utc::now().timestamp_millis();
-        let days = (remaining_ms as f64 / 86_400_000.0).ceil() as i64;
-        let meta = if days > 0 {
-            format!(
-                "Out in {days} day{} on consoles, so there's nothing to test yet",
-                if days == 1 { "" } else { "s" }
-            )
-        } else {
-            "Out on consoles, no AnyPS5 test report yet".into()
-        };
-        return json!({"id":id,"kind":"answer game","kicker":kicker,"title":"GTA VI","meta":meta,"icon":"🌴","pill":"0%","progress":0});
+        let status = crate::gta6::status();
+        let meta = format!(
+            "{} · firmware {} needed, public jailbreak up to {}",
+            status["title"].as_str().unwrap_or(""),
+            status["firmware"]["required"].as_str().unwrap_or(""),
+            status["firmware"]["jailbreak"].as_str().unwrap_or("")
+        );
+        let progress = status["step"].as_i64().unwrap_or(0) * 50;
+        return json!({"id":id,"kind":"answer game","kicker":kicker,"title":"GTA VI","meta":meta,"icon":"🌴","pill":status["label"],"progress":progress});
     }
     found
         .map(|thread| game_card(id, kicker, thread))
@@ -359,10 +354,11 @@ fn answer(
         "discord" => {
             json!({"id":id,"kind":"discord","kicker":kicker,"title":"Join the AnyPS5 Discord","meta":format!("{DISCORD} · scan the code"),"image":"discord-qr.svg"})
         }
+        "gta" => game_answer(id, &kicker, "gta 6", threads),
         "help" => simple(
             "cta",
-            "!game  !lib  !next  !top  !random  !discord".into(),
-            "Try !game elden ring: the answer shows up here".into(),
+            "!gta  !game  !lib  !next  !top  !random  !discord".into(),
+            "Try !gta for GTA VI, or !game elden ring: the answer shows up here".into(),
             "💬",
         ),
         "next" => {
@@ -652,10 +648,12 @@ mod tests {
         assert_eq!(normalize("Resident Evil IV"), "resident evil 4");
     }
     #[test]
-    fn gta_six_fallback_yields_to_a_real_thread() {
+    fn gta_six_status_yields_to_a_thread_only_once_dumped() {
+        assert_eq!(ask("!gta").unwrap()["title"], "GTA VI");
         let answer = ask("!game gta 6").unwrap();
         assert_eq!(answer["title"], "GTA VI");
-        assert_eq!(answer["pill"], "0%");
+        assert_eq!(answer["pill"], crate::gta6::status()["label"]);
+        assert!(answer["meta"].as_str().unwrap().contains("14.23"));
         let real = command_answer(
             &message("!game gta vi"),
             &[thread("Grand Theft Auto VI", "Menu", 3, "")],
@@ -664,7 +662,12 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert_eq!(real["pill"], "Menu");
+        let expected = if crate::gta6::reports_count() {
+            json!("Menu")
+        } else {
+            crate::gta6::status()["label"].clone()
+        };
+        assert_eq!(real["pill"], expected);
     }
     #[test]
     fn discord_next_top_and_random_match_contract() {

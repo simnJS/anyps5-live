@@ -14,10 +14,11 @@ An unofficial community project: it is not affiliated with the AnyPS5 maintainer
 
 ### On screen
 
-- **Header**: the next milestone (functions to go, estimated from the 7-day pace) and a countdown to the next scene.
-- **Rotating scenes**: the dashboard for 45 seconds, then one full-screen scene for 25 seconds, readable on a phone: a spotlight on games reaching gameplay (the best-known ones come back most often), the next milestone, top contributors, the biggest gains.
+- **Header**: GTA VI's status on AnyPS5 (not dumped yet, the firmware it needs and the highest public jailbreak) and a countdown to the next scene.
+- **GTA VI scene**: every other scene, for 40 seconds: where GTA VI stands on AnyPS5 (out on PS5, dumped, playable on PC), the PS5 firmware it needs against the highest public jailbreak, the time since its release and the Rockstar games already on AnyPS5. Its status is set in one place, `dashboard/src/gta6.rs`, which also feeds the GTA VI page and `!gta`.
+- **Rotating scenes**: the dashboard for 45 seconds, then a full-screen scene, readable on a phone: GTA VI, the next milestone, top contributors, the biggest gains. The game spotlight is out of the rotation while GTA VI is new; `?scene=games` still shows it.
 - **Alerts**: a card slides in for each new merged PR, new game report, finished library and new release. Each 1,000th function gets a full-screen celebration.
-- **Chat commands**: viewers type `!game <name>` to see how far a game got (short names like `gta v` work), `!lib <name>` for a system library, `!next` for the next goal, `!top` for the day's top contributor, `!random` for a game reaching gameplay, `!discord` for a code to join the Discord, or `!help`. The answer slides in on screen with their name: within about 75 seconds for the first command, then within seconds for the next 3 minutes. What viewers type is never shown. Set `CHAT_COMMANDS=1` to turn them on. Every `CHAT_REMINDER_MINUTES`, the channel posts a reminder of the commands in the chat, when the OAuth values are set.
+- **Chat commands**: viewers type `!gta` for GTA VI's status, `!game <name>` to see how far a game got (short names like `gta v` work), `!lib <name>` for a system library, `!next` for the next goal, `!top` for the day's top contributor, `!random` for a game reaching gameplay, `!discord` for a code to join the Discord, or `!help`. The answer slides in on screen with their name: within about 75 seconds for the first command, then within seconds for the next 3 minutes. What viewers type is never shown. Set `CHAT_COMMANDS=1` to turn them on. Every `CHAT_REMINDER_MINUTES`, the channel posts a reminder of the commands in the chat, when the OAuth values are set.
 - **Calls to action**: a like, subscribe, Discord or chat command card every 3 minutes and after each milestone, and a live like goal beside the title once `YOUTUBE_API_KEY` and `YOUTUBE_VIDEO_ID` are set.
 
 ### Dashboard scene
@@ -83,7 +84,7 @@ docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:
 
   Then open <http://localhost:8080> in a window sized 1920×1080.
 
-- **See one scene or alert**: add `?scene=games` (or `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
+- **See one scene or alert**: add `?scene=gta6` (or `games`, `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
 
 - **Record 30 seconds to a file** instead of streaming:
 

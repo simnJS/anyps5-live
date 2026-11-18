@@ -1,9 +1,12 @@
 "use strict";
 
-// The official date, in UTC since the launch hour is not the same everywhere. If Rockstar moves it, change it here.
-const RELEASE = Date.parse("2026-11-19T00:00:00Z");
+// GTA VI's status (stage, firmware figures, release time) comes from the dashboard: src/gta6.rs.
 const RELOAD_MS = 6 * 3_600_000, CTA_MS = 15_000;
-const CTAS = ["👍 Like if you're counting down too", "🔔 Subscribe to follow GTA VI on AnyPS5", "💬 Buying it on day one? Tell the chat"];
+const CTAS = {
+  released: ["👍 Like if you're waiting for the dump too", "🔔 Subscribe: the dump shows up here first", "💬 Already playing on PS5? Tell the chat"],
+  dumped: ["👍 Like if you want GTA VI on PC", "🔔 Subscribe to see the first AnyPS5 tests", "💬 What should AnyPS5 fix first? Tell the chat"],
+  playable: ["👍 Like if you're playing it on PC", "🔔 Subscribe to follow GTA VI on AnyPS5", "💬 How does it run for you? Tell the chat"],
+};
 const THIS_GAME = /grand theft auto\s*(vi|6)\b|\bgta\s*(vi|6)\b/i;
 const number = new Intl.NumberFormat("en-US");
 const fmt = (value) => (value === null || value === undefined ? "—" : number.format(value));
@@ -20,13 +23,27 @@ function showCover() {
   $("hero").classList.add("has-cover");
 }
 
+let gta = null;
+
 function tick() {
-  const left = RELEASE - Date.now();
-  if (left <= 0) $("clock-label").textContent = "Out on consoles for";
-  const seconds = Math.floor(Math.abs(left) / 1000);
+  const released = Date.parse(gta?.releasedAt ?? "");
+  const seconds = Number.isNaN(released) ? 0 : Math.max(0, Math.floor((Date.now() - released) / 1000));
   const units = [[Math.floor(seconds / 86400), "days"], [pad(Math.floor(seconds / 3600) % 24), "hours"], [pad(Math.floor(seconds / 60) % 60), "minutes"], [pad(seconds % 60), "seconds"]];
   $("count").innerHTML = units.map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join("");
-  $("cta").textContent = CTAS[Math.floor(Date.now() / CTA_MS) % CTAS.length];
+  const ctas = CTAS[gta?.stage] ?? CTAS.released;
+  $("cta").textContent = ctas[Math.floor(Date.now() / CTA_MS) % ctas.length];
+}
+
+function renderStatus(status, thread) {
+  gta = status;
+  $("port-status").textContent = status.title;
+  $("fw-required").textContent = status.firmware.required;
+  $("fw-jailbreak").textContent = status.firmware.jailbreak;
+  $("firmware").hidden = status.stage !== "released";
+  $("steps").innerHTML = status.steps.map((step, index) => `<li class="${index <= status.step ? "passed" : index === status.step + 1 ? "current" : ""}">${escape(step)}</li>`).join("");
+  $("port-note").textContent = thread && status.reportsCount
+    ? `First AnyPS5 reports: ${thread.stage ?? "being tested"} · ${fmt(thread.replies)} replies in its test thread.`
+    : status.detail;
 }
 
 const stageClass = (stage) => (!stage ? "open" : stage === "In game" ? "" : "early");
@@ -34,13 +51,7 @@ let mapKey = "";
 
 function render(state) {
   const thread = state.games?.rockstar?.find((game) => THIS_GAME.test(game.name));
-  if (thread) {
-    $("port-status").textContent = thread.stage ? `First reports: ${thread.stage}` : "First reports are in";
-    $("port-note").textContent = `${fmt(thread.replies)} replies in its AnyPS5 test thread.`;
-  } else if (Date.now() >= RELEASE) {
-    $("port-status").textContent = "Out, no test report yet";
-    $("port-note").textContent = "Waiting for the first AnyPS5 report.";
-  }
+  if (state.gta6) renderStatus(state.gta6, thread);
   $("stat-done").textContent = fmt(state.progress?.done);
   $("stat-gain").textContent = state.progress?.day ? `+${fmt(state.progress.day.done)} in 24 h` : "";
   $("stat-games").textContent = fmt(state.games?.inGame);

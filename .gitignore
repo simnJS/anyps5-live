@@ -5,3 +5,4 @@ dashboard/data/
 recordings/
 music/*
 !music/.gitkeep
+dashboard/target/

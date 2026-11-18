@@ -8,6 +8,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 mod chat;
+mod gta6;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Serialize, Serializer, ser::SerializeMap};
@@ -1727,6 +1728,7 @@ async fn main() -> Result<()> {
         "libraries": null,
         "github": null,
         "games": null, "events": [],
+        "gta6": gta6::status(),
         "youtube": {"likes": null, "viewers": null, "shorts": env::var("YOUTUBE_REFRESH_TOKEN").is_ok_and(|x| !x.is_empty())},
         "chat": {"enabled": env::var("CHAT_COMMANDS").as_deref() == Ok("1") && env::var("YOUTUBE_API_KEY").is_ok_and(|x| !x.is_empty()) && env::var("YOUTUBE_VIDEO_ID").is_ok_and(|x| !x.is_empty()), "answers": []}
     })));

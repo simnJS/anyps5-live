@@ -199,11 +199,56 @@ function nextMilestone(progress) {
   return { target, left: target - progress.done, from: target - MILESTONE_STEP };
 }
 
-function renderGoal(progress) {
-  if (!progress) return;
-  const { target, left } = nextMilestone(progress);
-  const eta = etaText(left, dailyPace(progress));
-  $("goal").innerHTML = `Goal: <strong>${fmt(target)}</strong> functions · <strong>${fmt(left)}</strong> to go${eta ? ` · ${eta}` : ""}`;
+// GTA VI on AnyPS5: its stage and the firmware figures come from the dashboard (src/gta6.rs).
+const GTA_SECONDS = 40;
+const THIS_GAME = /grand theft auto\s*(vi|6)\b|\bgta\s*(vi|6)\b/i;
+
+function renderGtaChip(gta) {
+  const node = $("gta-chip");
+  node.hidden = !gta;
+  if (!gta) return;
+  const firmware = gta.stage === "released" ? ` · needs firmware <strong>${escape(gta.firmware.required)}</strong>, jailbreak at ${escape(gta.firmware.jailbreak)}` : "";
+  node.innerHTML = `🌴 GTA VI: <strong class="gta-chip-stage">${escape(gta.label)}</strong>${firmware}`;
+}
+
+function sinceText(iso) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${Math.floor(seconds / 86400)}d ${pad(Math.floor(seconds / 3600) % 24)}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+}
+
+function tickGtaSince() {
+  const node = $("gta6-since");
+  if (node && latest?.gta6) node.textContent = sinceText(latest.gta6.releasedAt);
+}
+
+function renderGta6Scene() {
+  const gta = latest?.gta6;
+  if (!gta) return false;
+  const steps = gta.steps.map((step, index) => `<div class="gta6-step ${index <= gta.step ? "passed" : index === gta.step + 1 ? "current" : ""}">${escape(step)}</div>`).join("");
+  const firmware = gta.stage === "released" ? `<div class="gta6-firmware">
+      <div><div class="gta6-fw">${escape(gta.firmware.required)}</div><div class="gta6-fw-label">PS5 firmware GTA VI needs</div></div>
+      <div class="gta6-vs">vs</div>
+      <div class="jailbreak"><div class="gta6-fw">${escape(gta.firmware.jailbreak)}</div><div class="gta6-fw-label">highest public jailbreak</div></div>
+    </div>` : "";
+  const thread = latest.games?.rockstar?.find((game) => THIS_GAME.test(game.name));
+  const report = thread && gta.reportsCount ? `First AnyPS5 reports: ${escape(thread.stage ?? "being tested")} · ${fmt(thread.replies)} replies.` : escape(gta.detail);
+  const rockstar = (latest.games?.rockstar ?? []).filter((game) => !THIS_GAME.test(game.name)).slice(0, 5)
+    .map((game) => `<li><span class="gta6-game-name">${escape(game.name)}</span><span class="gta6-game-stage ${game.stage === "In game" ? "good" : ""}">${escape(game.stage ?? "Being tested")}</span></li>`).join("");
+  $("scene-gta6").innerHTML = `<div class="scene-body gta6-scene">
+    <div class="gta6-main">
+      <div><div class="scene-tag">GTA VI on AnyPS5</div><h2 class="scene-title">${escape(gta.title)}</h2></div>
+      ${firmware}
+      <div class="gta6-steps">${steps}</div>
+      <div class="scene-note">${report}</div>
+      ${latest.chat?.enabled ? `<div class="chat-hint">💬 Type <strong>!gta</strong> in the chat for its status at any time</div>` : ""}
+    </div>
+    <aside class="gta6-side">
+      <div class="gta6-since-box"><div class="gta6-side-title">Out on PS5 for</div><div class="gta6-since" id="gta6-since">${sinceText(gta.releasedAt)}</div></div>
+      ${rockstar ? `<div class="gta6-side-title">Rockstar games on AnyPS5 today</div><ol class="gta6-games">${rockstar}</ol>` : ""}
+    </aside>
+  </div>`;
+  return true;
 }
 
 // Scenes
@@ -306,8 +351,11 @@ const SCENES = {
   contributors: { node: "scene-contributors", title: "Top contributors", render: renderContributors, seconds: SCENE_SECONDS },
   movers: { node: "scene-movers", title: "Biggest gains", render: renderMovers, seconds: SCENE_SECONDS },
   milestone: { node: "scene-milestone", title: "Next milestone", render: renderMilestoneScene, seconds: SCENE_SECONDS },
+  gta6: { node: "scene-gta6", title: "GTA VI", render: renderGta6Scene, seconds: GTA_SECONDS },
 };
-const ROTATION = ["dashboard", "games", "dashboard", "milestone", "dashboard", "games", "dashboard", "contributors", "dashboard", "games", "dashboard", "movers"];
+// Most viewers come for GTA VI: it fills every other turn, about half the time. The game spotlight is out of the
+// rotation for now and can still be pinned with ?scene=games.
+const ROTATION = ["dashboard", "gta6", "milestone", "gta6", "dashboard", "gta6", "contributors", "gta6", "dashboard", "gta6", "movers", "gta6"];
 const params = new URLSearchParams(location.search);
 const pinnedScene = SCENES[params.get("scene")] ? params.get("scene") : null;
 const TRANSITION_MS = 500, PREPARE_SECONDS = 3;
@@ -482,7 +530,14 @@ function subscribeCta() {
 }
 
 function chatCta() {
-  return { kind: "cta", kicker: "Ask the stream", title: "Type !game followed by a game's name", meta: "The answer shows up here. !help lists the rest", icon: "💬" };
+  return { kind: "cta", kicker: "Ask the stream", title: "Type !gta for GTA VI's status", meta: "!game and a name for any other game. The answer shows up here", icon: "💬" };
+}
+
+function gta6Cta() {
+  const gta = latest?.gta6;
+  if (!gta) return likeCta("Hit like to support the stream");
+  const meta = gta.stage === "released" ? `Needs PS5 firmware ${gta.firmware.required}, the public jailbreak stops at ${gta.firmware.jailbreak}` : gta.detail;
+  return { kind: "cta", kicker: "GTA VI on AnyPS5", title: gta.title, meta, icon: "🌴" };
 }
 
 function discordCta() {
@@ -491,7 +546,7 @@ function discordCta() {
 
 function remindCta() {
   if (document.hidden) return;
-  const cards = [() => likeCta("Hit like to support the stream"), subscribeCta, discordCta];
+  const cards = [() => likeCta("Hit like to support the stream"), gta6Cta, subscribeCta, gta6Cta, discordCta];
   if (latest?.chat?.enabled) cards.splice(1, 0, chatCta);
   pushAlert(cards[ctaTurn % cards.length]());
   ctaTurn += 1;
@@ -514,6 +569,7 @@ function renderLikes(youtube) {
 
 function runDemo(kind) {
   if (kind === "cta") {
+    pushAlert(gta6Cta());
     pushAlert(likeCta("Hit like to support the stream"));
     pushAlert(subscribeCta());
   }
@@ -555,7 +611,7 @@ async function refresh() {
     const first = !latest;
     latest = state;
     renderKpis(state);
-    renderGoal(state.progress);
+    renderGtaChip(state.gta6);
     renderChart(state.history);
     renderPrs(state.github);
     renderEvents(state.events);
@@ -573,6 +629,7 @@ tickClock();
 setInterval(tickClock, 5000);
 tickScenes();
 setInterval(tickScenes, 1000);
+setInterval(tickGtaSince, 1000);
 refresh();
 setInterval(refresh, REFRESH_MS);
 refreshChat();

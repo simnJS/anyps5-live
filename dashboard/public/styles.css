@@ -71,8 +71,10 @@ ol { list-style: none; }
 .likes[hidden] { display: none; }
 .likes-bar { width: 110px; height: 10px; border-radius: 5px; background: var(--grid); overflow: hidden; }
 .likes-bar > span { display: block; height: 100%; background: var(--series-8); }
-.goal { font-size: 24px; color: var(--ink-2); white-space: nowrap; }
-.goal strong { color: var(--ink); font-weight: 800; }
+.gta-chip { padding: 8px 20px; border-radius: 12px; background: #2e2410; box-shadow: inset 0 0 0 2px var(--series-4); font-size: 23px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gta-chip[hidden] { display: none; }
+.gta-chip strong { color: var(--ink); font-weight: 800; }
+.gta-chip .gta-chip-stage { color: var(--series-4); }
 .next-up { font-size: 22px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .next-up strong { color: var(--series-1); font-weight: 700; }
 h1 { font-size: 36px; font-weight: 800; letter-spacing: -0.02em; }
@@ -204,6 +206,35 @@ h2 { font-size: 20px; font-weight: 700; white-space: nowrap; }
 .goal-left-text span { color: var(--good); }
 .goal-meter { height: 30px; border-radius: 10px; background: var(--todo); overflow: hidden; }
 .goal-meter > span { display: block; height: 100%; background: var(--series-1); }
+
+/* GTA VI scene */
+.gta6-scene { display: grid; grid-template-columns: 1fr 560px; gap: 56px; padding: 48px 56px; }
+.gta6-main { display: flex; flex-direction: column; justify-content: center; gap: 40px; min-width: 0; }
+.gta6-main .scene-title { font-size: 72px; color: var(--series-4); }
+.gta6-firmware { display: flex; align-items: flex-end; gap: 48px; }
+.gta6-fw { font-size: 160px; font-weight: 800; letter-spacing: -0.04em; line-height: 0.9; font-variant-numeric: tabular-nums; }
+.gta6-firmware .jailbreak .gta6-fw { color: var(--series-8); }
+.gta6-fw-label { margin-top: 10px; font-size: 28px; font-weight: 600; color: var(--ink-2); }
+.gta6-vs { padding-bottom: 58px; font-size: 40px; font-weight: 700; color: var(--muted); }
+.gta6-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.gta6-step { display: flex; align-items: center; gap: 16px; padding: 20px 24px; border-radius: 14px; background: var(--surface-2); font-size: 30px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.gta6-step::before { content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--todo); }
+.gta6-step.passed { color: var(--ink-2); }
+.gta6-step.passed::before { background: var(--good); }
+.gta6-step.current { color: var(--ink); background: #2e2410; box-shadow: inset 0 0 0 3px var(--series-4); }
+.gta6-step.current::before { background: var(--series-4); }
+.gta6-main .scene-note { font-size: 30px; line-height: 1.35; color: var(--ink-2); }
+.gta6-main .chat-hint { margin-top: 0; align-self: flex-start; font-size: 28px; }
+.gta6-side { display: flex; flex-direction: column; justify-content: center; gap: 22px; min-width: 0; }
+.gta6-since-box { padding: 26px 30px; border-radius: 14px; background: var(--surface-2); margin-bottom: 18px; }
+.gta6-since { margin-top: 8px; font-size: 76px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.gta6-side-title { font-size: 24px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.gta6-games { display: flex; flex-direction: column; gap: 14px; }
+.gta6-games li { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--grid); }
+.gta6-games li:last-child { border-bottom: 0; }
+.gta6-game-name { font-size: 28px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gta6-game-stage { font-size: 25px; font-weight: 700; color: var(--series-4); white-space: nowrap; }
+.gta6-game-stage.good { color: var(--good); }
 .gains-title { font-size: 25px; color: var(--ink-2); font-weight: 600; margin-bottom: 18px; }
 .gains { display: flex; align-items: flex-end; gap: 10px; height: 340px; }
 .gain { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; height: 100%; }
