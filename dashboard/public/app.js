@@ -207,7 +207,7 @@ function renderGtaChip(gta) {
   const node = $("gta-chip");
   node.hidden = !gta;
   if (!gta) return;
-  const firmware = gta.stage === "released" ? ` · needs firmware <strong>${escape(gta.firmware.required)}</strong>, jailbreak at ${escape(gta.firmware.jailbreak)}` : "";
+  const firmware = gta.stage === "released" ? ` · needs firmware <strong>${escape(gta.firmware.required)}</strong> · jailbreak ${escape(gta.firmware.jailbreak)}` : "";
   node.innerHTML = `🌴 GTA VI: <strong class="gta-chip-stage">${escape(gta.label)}</strong>${firmware}`;
 }
 
