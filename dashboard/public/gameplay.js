@@ -4,12 +4,18 @@
 // for the clip's length or `maxMinutes`. The clip and its texts are in the gameplay folder, next to the code on the
 // server: gameplay.json, written by tools/gameplay.sh with the video. No clip there, no gameplay.
 // The clip is muted: the stream keeps its own soundtrack, and the game's radio would draw copyright claims.
-// ?gameplay=now plays it at once, to try it.
+// A clip the page has not played yet (a new one, or the first after a browser restart) plays a minute after it
+// shows up, then on the clock. ?gameplay=now plays it at once, to try it.
 (() => {
   const CONFIG_URL = "/gameplay/gameplay.json";
   const CONFIG_MS = 60_000, PRELOAD_MS = 45_000, LATE_START_MS = 5_000, FADE_MS = 600;
+  const NEW_CLIP_DELAY_MS = 60_000, MIN_GAP_MS = 10 * 60_000;
   const playNow = new URLSearchParams(location.search).get("gameplay") === "now";
-  let config = null, playing = false, lastSlot = 0, stopTimer = 0, limitMs = 0;
+  let config = null, playing = false, lastSlot = 0, lastStart = 0, soonAt = 0, stopTimer = 0, limitMs = 0;
+  const played = {
+    get: () => { try { return localStorage.getItem("gameplay:file"); } catch { return null; } },
+    set: (file) => { try { localStorage.setItem("gameplay:file", file); } catch {} },
+  };
 
   const overlay = document.createElement("div");
   overlay.className = "gameplay";
@@ -35,6 +41,7 @@
     } catch (error) {
       config = null;
     }
+    if (config && !soonAt && !playing && played.get() !== config.file) soonAt = Date.now() + NEW_CLIP_DELAY_MS;
     if (playNow && config && !lastSlot) start(Date.now());
   }
 
@@ -54,7 +61,10 @@
 
   async function start(slot) {
     lastSlot = slot;
+    lastStart = Date.now();
+    soonAt = 0;
     playing = true;
+    played.set(config.file);
     preload();
     video.currentTime = 0;
     $(".gameplay-title").textContent = config.title ?? "GTA V gameplay";
@@ -96,16 +106,25 @@
     $(".gameplay-time").textContent = clock(Math.max(0, limitMs / 1000 - video.currentTime));
   });
 
+  // When the next clip starts: a new clip's first showing, or the next time on the clock.
+  function upcoming() {
+    if (!config) return null;
+    const clock = Math.floor(Date.now() / every()) * every() + every();
+    return soonAt && soonAt < clock ? soonAt : clock;
+  }
+
   function tick() {
     if (!config || playing) return;
     const now = Date.now(), slot = Math.floor(now / every()) * every();
-    if (now - slot < LATE_START_MS && slot !== lastSlot) start(slot);
-    else if (slot + every() - now < PRELOAD_MS) preload();
+    if (soonAt && now >= soonAt) start(now);
+    // A clip that has just played skips a slot right after it.
+    else if (now - slot < LATE_START_MS && slot !== lastSlot && now - lastStart > MIN_GAP_MS) start(slot);
+    else if (upcoming() - now < PRELOAD_MS) preload();
   }
 
   // For the pages: when the next clip starts (null without one), and whether one plays now.
   window.Gameplay = {
-    next: () => (config ? Math.floor(Date.now() / every()) * every() + every() : null),
+    next: upcoming,
     playing: () => playing,
     title: () => config?.title ?? "GTA V gameplay",
   };

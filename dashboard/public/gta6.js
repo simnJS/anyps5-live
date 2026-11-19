@@ -23,7 +23,7 @@ function showCover() {
   $("hero").classList.add("has-cover");
 }
 
-let gta = null;
+let gta = null, startedAt = null;
 
 function tick() {
   const released = Date.parse(gta?.releasedAt ?? "");
@@ -75,7 +75,12 @@ function render(state) {
 async function refresh() {
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
-    if (response.ok) render(await response.json());
+    if (!response.ok) return;
+    const state = await response.json();
+    // A restarted dashboard is a deploy: reload, so the stream shows the change within a refresh.
+    if (startedAt && state.startedAt !== startedAt) reload();
+    startedAt = state.startedAt;
+    render(state);
   } catch (error) {
     console.error("refresh", error);
   }

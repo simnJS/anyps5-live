@@ -1,19 +1,20 @@
 #!/bin/bash
-# Prepares a gameplay clip for the streams: 1080p at 30 fps, H.264, no sound, playable from its first second.
+# Prepares a gameplay clip for the streams: at most 1080p (a smaller video keeps its size, cheaper to decode on the
+# server), 30 fps, H.264, no sound, playable from its first second.
 # It writes gameplay/<name>.mp4 and gameplay/gameplay.json, the only clip there; the pages play it on the clock.
 #
 #   tools/gameplay.sh <video> [options]
 #     -s, --start <time>      where the clip starts in the video (90, 1:30), from the start by default
 #     -m, --minutes <n>       how long the clip lasts, the rest of the video by default
 #     -t, --title <text>      default: "GTA V on AnyKyty"
-#     -c, --caption <text>    default: "Fidelity 4K with ray tracing · RTX 4080 SUPER · recorded <the video's date>"
+#     -c, --caption <text>    default: "RTX 4080 SUPER · Linux · recorded <the video's date>"
 #     -e, --every <minutes>   how often it plays, default 30 (on the clock: :00 and :30)
 #
 # Then copy the folder to the server; the pages pick the new clip up within a minute, with no restart:
 #   rsync -avP --delete gameplay/ <user>@<server>:anyps5-live/gameplay/
 set -euo pipefail
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 [ $# -ge 1 ] || usage 1
 case "$1" in -h|--help) usage ;; esac
@@ -35,7 +36,7 @@ while [ $# -gt 0 ]; do
 done
 
 recorded=$(date -r "$source_video" +"%b %-d")
-[ -n "$caption" ] || caption="Fidelity 4K with ray tracing · RTX 4080 SUPER · recorded $recorded"
+[ -n "$caption" ] || caption="RTX 4080 SUPER · Linux · recorded $recorded"
 
 folder="$(cd "$(dirname "$0")/.." && pwd)/gameplay"
 mkdir -p "$folder"
@@ -45,7 +46,7 @@ length=()
 
 echo "Encoding $source_video into gameplay/$name"
 ffmpeg -hide_banner -loglevel error -stats -y -ss "$start" -i "$source_video" "${length[@]}" \
-  -vf "scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:-1:-1:color=black,fps=30,format=yuv420p" \
+  -vf "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,fps=30,format=yuv420p" \
   -c:v libx264 -preset slow -crf 20 -maxrate 8M -bufsize 16M -profile:v high -level 4.1 -g 60 \
   -an -movflags +faststart "$folder/$name.part.mp4"
 mv "$folder/$name.part.mp4" "$folder/$name"

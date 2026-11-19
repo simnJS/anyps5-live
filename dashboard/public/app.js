@@ -685,6 +685,7 @@ async function refresh() {
     const response = await fetch("/api/state", { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const state = await response.json();
+    if (latest?.startedAt && state.startedAt !== latest.startedAt) reload();
     const first = !latest;
     latest = state;
     renderKpis(state);

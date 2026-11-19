@@ -150,12 +150,12 @@ The logs give each Short's URL and privacy. YouTube can lock uploads from an una
 
 ## Gameplay clips
 
-Every `everyMinutes` (30 by default, on the clock), the streams play the clip in `./gameplay`, full screen and muted: the stream keeps its own soundtrack, and the game's radio would draw copyright claims on the live. The scenes wait while it plays, and a page reload waits for it to end.
+Every `everyMinutes` (30 by default, on the clock), the streams play the clip in `./gameplay`, full screen and muted; a new clip also plays a minute after it shows up. The pages reload by themselves when the dashboard restarts, so a deploy shows within 15 seconds. The clip is muted: the stream keeps its own soundtrack, and the game's radio would draw copyright claims on the live. The scenes wait while it plays, and a page reload waits for it to end.
 
-1. Prepare the clip on the computer it was recorded on. Any video works (4K, 60 fps, with sound): it comes out at 1080p, 30 fps, H.264, without sound, and replaces the previous clip.
+1. Prepare the clip on the computer it was recorded on. Any video works (4K, 60 fps, with sound): it comes out at 30 fps, H.264, without sound, at most 1080p, and replaces the previous clip.
 
    ```bash
-   tools/gameplay.sh ~/Videos/gta5.mkv --start 1:30 --minutes 3 --caption "Fidelity 4K with ray tracing · RTX 4080 SUPER · recorded Nov 19"
+   tools/gameplay.sh ~/Videos/gta5.mkv --start 1:30 --minutes 3 --caption "Performance mode · RTX 4080 SUPER · Linux · recorded Nov 19"
    ```
 
    `tools/gameplay.sh --help` lists the options: start, length, title, caption, and how often it plays.
