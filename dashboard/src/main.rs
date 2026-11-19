@@ -473,6 +473,31 @@ async fn github_graphql(
     Ok(body["data"].clone())
 }
 
+// Stages confirmed in the threads' replies (public/game-stages.json), by title ID: the replies are free
+// text, so they are kept by hand. Read on every collection, so an edit shows without a restart.
+fn parse_confirmed_stages(text: &str) -> HashMap<String, usize> {
+    let parsed: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+    parsed["stages"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(id, stage)| {
+            let index = GAME_STAGES
+                .iter()
+                .position(|s| Some(*s) == stage.as_str())?;
+            Some((id.clone(), index))
+        })
+        .collect()
+}
+
+async fn confirmed_stages() -> HashMap<String, usize> {
+    let public = env::var("PUBLIC_DIR").unwrap_or_else(|_| "./public".into());
+    let text = fs::read_to_string(PathBuf::from(public).join("game-stages.json"))
+        .await
+        .unwrap_or_default();
+    parse_confirmed_stages(&text)
+}
+
 async fn collect_games(
     client: &Client,
     data: Arc<RwLock<Value>>,
@@ -539,11 +564,13 @@ async fn collect_games(
     // Read the cover cache only after GraphQL finishes: the parallel startup
     // roadmap collector may have populated it while discussions were loading.
     let covers = covers.read().await.clone();
+    let confirmed = confirmed_stages().await;
     let threads: Arc<Vec<Value>> = Arc::new(discussions.iter().map(|d| {
         let title = d["title"].as_str().unwrap_or_default();
         let id = GAME_ID_RE.find(title).map(|m| m.as_str());
         let game_name = id.map(|id| title[..title.find(id).unwrap_or(0)].trim_end_matches([' ', '(', '—', '–', ':', '-']).to_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| title.to_owned());
-        let stage = game_stage(d["body"].as_str().unwrap_or_default()).map(|i| GAME_STAGES[i]);
+        let reported = game_stage(d["body"].as_str().unwrap_or_default());
+        let stage = reported.max(id.and_then(|id| confirmed.get(id).copied())).map(|i| GAME_STAGES[i]);
         json!({"number":d["number"],"name":game_name,"titleId":id,"stage":stage,"replies":d["comments"]["totalCount"],"createdAt":d["createdAt"],"updatedAt":d["updatedAt"],"cover":id.and_then(|id| covers.get(id))})
     }).collect());
     let count = |stage: &str| threads.iter().filter(|t| t["stage"] == stage).count();
@@ -568,7 +595,11 @@ async fn collect_games(
         .iter()
         .filter(|t| {
             let name = t["name"].as_str().unwrap_or("").to_lowercase();
-            name.contains("grand theft auto") || ROCKSTAR_RE.is_match(&name)
+            // The PS5 releases: a PS4 thread of the same game would show twice under one name.
+            (name.contains("grand theft auto") || ROCKSTAR_RE.is_match(&name))
+                && t["titleId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("PPSA"))
         })
         .cloned()
         .collect();
@@ -2221,6 +2252,24 @@ mod tests {
         assert!(state["libraries"]["movers"][0].get("todo").is_none());
         assert_eq!(state["sources"]["progress"]["ok"], true);
         assert_eq!(state["sources"]["history"]["ok"], true);
+    }
+
+    // game-stages.json is edited by hand: every entry must name a real stage for a title ID.
+    #[test]
+    fn confirmed_game_stages_are_valid() {
+        let text = include_str!("../public/game-stages.json");
+        let raw: serde_json::Value = serde_json::from_str(text).expect("game-stages.json is JSON");
+        let stages = raw["stages"].as_object().expect("stages");
+        let parsed = super::parse_confirmed_stages(text);
+        assert_eq!(
+            parsed.len(),
+            stages.len(),
+            "an entry names an unknown stage"
+        );
+        for id in stages.keys() {
+            assert!(super::GAME_ID_RE.is_match(id), "{id}");
+        }
+        assert_eq!(parsed["PPSA04264"], super::GAME_STAGES.len() - 1);
     }
 
     // perf.json is edited by hand: a missing field or an unknown kind would leave its scene blank on the stream.

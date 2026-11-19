@@ -1,0 +1,10 @@
+{
+  "about": "Stages confirmed in a Game bring-up thread's replies, which the dashboard does not read (it reads each thread's first report). Keyed by title ID; the furthest of this and the first report wins. Re-read on every collection, so a copy into the running container shows within 10 minutes.",
+  "stages": {
+    "PPSA04263": "In game",
+    "PPSA04264": "In game",
+    "PPSA03530": "In game",
+    "PPSA03527": "In game",
+    "PPSA30528": "In game"
+  }
+}

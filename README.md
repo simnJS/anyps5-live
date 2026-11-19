@@ -121,7 +121,7 @@ docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:
 
 The dashboard keeps one snapshot of every library per day in the `dashboard-data` volume. Comparing snapshots is what finds new libraries, newly discovered exports and completed libraries as they happen. History-based events (export waves, big jumps, milestones) are there from the first minute.
 
-A game's stage is the "Furthest point" of the first report in its thread, read from the discussion's form. Later replies are not read, so the counts can lag behind, and a thread whose first report gives no recognisable stage counts as reported but in no stage. "In game" means gameplay was reached, not that the game is playable from start to finish.
+A game's stage is the "Furthest point" of the first report in its thread, read from the discussion's form. Later replies are free text and are not read, so the counts can lag behind, and a thread whose first report gives no recognisable stage counts as reported but in no stage. A stage confirmed in the replies goes in `dashboard/public/game-stages.json`, by title ID: the furthest of it and the first report wins, and the file is read again on every collection, so a copy into the running container shows within 10 minutes without a restart. "In game" means gameplay was reached, not that the game is playable from start to finish.
 
 The browser page refreshes its data every 15 seconds and reloads itself every 6 hours; Chromium is restarted every 24 hours to keep memory flat.
 
