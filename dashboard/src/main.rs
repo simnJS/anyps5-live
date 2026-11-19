@@ -1720,15 +1720,15 @@ async fn chat_reminder(app: AppState) {
         }
         persisted["chatReminderAt"] = json!(now);
     }
-    // In turn: what AnyPS5 is (first), then the commands.
+    // In turn: what AnyPS5 is (first), the commands, then a like and subscribe.
     let text = {
         let mut persisted = app.persisted.write().await;
         let turn = persisted["chatReminderTurn"].as_i64().unwrap_or(0);
         persisted["chatReminderTurn"] = json!(turn + 1);
-        if turn % 2 == 0 {
-            chat::about_message(&gta6::chat_line())
-        } else {
-            chat::CHAT_REMINDER.to_owned()
+        match turn % 3 {
+            0 => chat::about_message(&gta6::chat_line()),
+            1 => chat::CHAT_REMINDER.to_owned(),
+            _ => chat::CHAT_LIKE.to_owned(),
         }
     };
     save_persisted(&app).await;

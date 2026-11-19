@@ -146,6 +146,7 @@ pub fn about_message(gta6: &str) -> String {
         "🎮 AnyPS5 converts PS5 games to run natively on PC, with no emulator. Open source: {REPOSITORY} · {gta6}"
     )
 }
+pub const CHAT_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe to follow AnyPS5 and GTA VI on PC: the dump shows up here first. Every like helps more people find it!";
 pub const CHAT_REMINDER: &str = "💬 Ask the stream: !gta for GTA VI on AnyPS5, !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
 static COMMAND_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^!(gta|game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap()
@@ -735,6 +736,7 @@ mod tests {
     #[test]
     fn reminder_budget_and_california_day_contracts() {
         assert!(CHAT_REMINDER.chars().count() <= 200);
+        assert!(CHAT_LIKE.chars().count() <= 200);
         assert!(CHAT_REMINDER.contains("https://discord.gg/BHFztBPUe"));
         assert_eq!(next_chat_delay(1000, 5000, 1, 75), 250);
         assert_eq!(next_chat_delay(6000, 5000, 1, 75), 75_000);
