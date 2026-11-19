@@ -232,6 +232,8 @@ fn apply_cache_policy(path: &str, response: &mut axum::response::Response) {
             Some("font/woff2")
         } else if path.ends_with(".json") {
             Some("application/json; charset=utf-8")
+        } else if path.ends_with(".mp4") {
+            Some("video/mp4")
         } else {
             None
         };
@@ -1821,11 +1823,14 @@ async fn main() -> Result<()> {
         }
     });
     let public = env::var("PUBLIC_DIR").unwrap_or_else(|_| "./public".into());
+    // The GTA V gameplay clip and its gameplay.json, copied to the server apart from the code (tools/gameplay.sh).
+    let gameplay = env::var("GAMEPLAY_DIR").unwrap_or_else(|_| "../gameplay".into());
     let router = Router::new()
         .route("/api/state", get(state))
         .route("/api/chat", get(chat_state))
         .route("/api/short-meta", get(short_meta))
         .route("/healthz", get(health))
+        .nest_service("/gameplay", ServeDir::new(gameplay))
         .fallback_service(ServeDir::new(public))
         .layer(middleware::from_fn(cache_policy))
         .with_state(app);
@@ -1996,6 +2001,13 @@ mod tests {
             .unwrap();
         apply_cache_policy("/healthz", &mut health);
         assert!(!health.headers().contains_key("cache-control"));
+
+        let mut clip = Response::builder()
+            .status(StatusCode::PARTIAL_CONTENT)
+            .body(Body::empty())
+            .unwrap();
+        apply_cache_policy("/gameplay/gta5.mp4", &mut clip);
+        assert_eq!(clip.headers()["content-type"], "video/mp4");
     }
 
     #[tokio::test]

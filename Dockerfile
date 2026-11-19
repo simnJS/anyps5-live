@@ -26,11 +26,12 @@ COPY streamer/entrypoint.sh /usr/local/bin/streamer.sh
 COPY streamer/shorts.sh /usr/local/bin/shorts.sh
 COPY start.sh /usr/local/bin/start.sh
 RUN chmod 0755 /usr/local/bin/streamer.sh /usr/local/bin/shorts.sh /usr/local/bin/start.sh \
- && mkdir -p /data /music /recordings \
+ && mkdir -p /data /music /recordings /gameplay \
  && chown node:node /data /recordings
 
 ENV DATA_DIR=/data \
     PUBLIC_DIR=/app/public \
+    GAMEPLAY_DIR=/gameplay \
     PORT=3000 \
     WIDTH=2560 \
     HEIGHT=1440 \

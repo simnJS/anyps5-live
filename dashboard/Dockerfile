@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=build /build/target/release/anyps5-live-dashboard /usr/local/bin/dashboard
 COPY public ./public
-ENV DATA_DIR=/data PORT=8080 PUBLIC_DIR=/app/public
+ENV DATA_DIR=/data PORT=8080 PUBLIC_DIR=/app/public GAMEPLAY_DIR=/gameplay
 USER app
 VOLUME /data
 EXPOSE 8080

@@ -19,6 +19,8 @@ services:
       SHORT_PRIVACY: ${SHORT_PRIVACY:-public}
     volumes:
       - dashboard-data:/data
+      # The GTA V gameplay clip, copied here apart from the code (tools/gameplay.sh).
+      - ./gameplay:/gameplay:ro
     ports:
       - "127.0.0.1:${DASHBOARD_PORT:-8080}:8080"
 

@@ -450,7 +450,30 @@ function prepareNext() {
   return null;
 }
 
+// The scenes wait while a gameplay clip plays (gameplay.js), and the one under it gets its full time back after.
+document.addEventListener("gameplay:end", () => {
+  sceneEnds = Date.now() + SCENES[shownScene].seconds * 1000;
+  prepared = null;
+});
+const GAMEPLAY_WARNING_MS = 60_000;
+let gameplayWarned = 0;
+
+// The header counts down to a clip a minute ahead, and a card announces it.
+function gameplayCountdown() {
+  const at = window.Gameplay?.next();
+  const left = at ? at - Date.now() : Infinity;
+  if (left > GAMEPLAY_WARNING_MS) return false;
+  if (gameplayWarned !== at) {
+    gameplayWarned = at;
+    pushAlert({ kind: "cta gameplay-soon", kicker: "Coming up in 1 minute", title: window.Gameplay.title(), meta: "Real gameplay, recorded on AnyKyty", icon: "🎮" });
+  }
+  const seconds = Math.max(0, Math.ceil(left / 1000));
+  $("next-up").innerHTML = `Next: <strong>Gameplay</strong> in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return true;
+}
+
 function tickScenes() {
+  if (window.Gameplay?.playing()) return;
   if (pinnedScene) {
     if (shownScene !== pinnedScene && latest && SCENES[pinnedScene].render()) showScene(pinnedScene);
     return;
@@ -468,6 +491,7 @@ function tickScenes() {
     }
     left = SCENES[shownScene].seconds;
   }
+  if (gameplayCountdown()) return;
   const next = SCENES[prepared?.name ?? nextSceneName().name];
   $("next-up").innerHTML = `Next: <strong>${next.title}</strong> in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 }
@@ -597,7 +621,7 @@ function discordCta() {
 }
 
 function remindCta() {
-  if (document.hidden) return;
+  if (document.hidden || window.Gameplay?.playing()) return;
   const cards = [() => likeCta("Hit like to support the stream"), gta6Cta, hangarCta, subscribeCta, gta6Cta, discordCta];
   if (latest?.chat?.enabled) cards.splice(1, 0, chatCta);
   pushAlert(cards[ctaTurn % cards.length]());
@@ -690,4 +714,9 @@ setInterval(refreshPerf, PERF_REFRESH_MS);
 refreshChat();
 setInterval(refreshChat, 2000);
 setInterval(remindCta, CTA_EVERY_MS);
-setTimeout(() => location.reload(), RELOAD_MS);
+// A clip playing at reload time ends first.
+function reload() {
+  if (window.Gameplay?.playing()) setTimeout(reload, 10_000);
+  else location.reload();
+}
+setTimeout(reload, RELOAD_MS);

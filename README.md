@@ -18,6 +18,7 @@ An unofficial community project: it is not affiliated with the AnyPS5 maintainer
 - **GTA VI scene**: every other scene, for 40 seconds: where GTA VI stands on AnyPS5 (out on PS5, dumped, playable on PC), the PS5 firmware it needs against the highest public jailbreak, the time since its release and the Rockstar games already on AnyPS5. Its status is set in one place, `dashboard/src/gta6.rs`, which also feeds the GTA VI page and `!gta`.
 - **GTA V fps scene**: AnyKyty's measured frame rates in GTA V, Fidelity 4K with ray tracing, step by step, with the gain of what shipped and of what is still in test. Its figures and texts are all in `dashboard/public/perf.json` (see [Edit the fps chart](#edit-the-fps-chart)).
 - **Made with HangarAI**: the AnyKyty fork and this live were built with [HangarAI](https://hangarai.dev), the open-source app that runs a team of coding agents. A scene right after the GTA V fps chart shows its logo, the app, and a code to join its Discord; a card comes back among the calls to action, and the GTA VI page credits it beside its legal line. Its texts are in `PROMO` in `dashboard/public/app.js`; the logo, screenshot and Discord code are the `hangar-*` files in `dashboard/public` (the code: `qrencode -t SVG -m 2 -o hangar-discord-qr.svg https://discord.gg/hangarai`).
+- **GTA V gameplay**: every 30 minutes on the clock (:00 and :30), both streams play a gameplay clip recorded on AnyKyty full screen, with its title, a caption and the time left; the header counts down to it a minute ahead. See [Gameplay clips](#gameplay-clips).
 - **Rotating scenes**: the dashboard for 30 seconds, then a full-screen scene, readable on a phone: GTA VI (25 s, every other scene), GTA V fps (20 s), Made with HangarAI (15 s), the biggest gains (15 s). The durations are at the top of the scene list in `dashboard/public/app.js`. The game spotlight and the top contributors are out of the rotation while GTA VI is new; `?scene=games` and `?scene=contributors` still show them.
 - **Alerts**: a card slides in for each new merged PR, new game report, finished library and new release. Each 1,000th function gets a full-screen celebration.
 - **Chat commands**: viewers type `!gta` for GTA VI's status, `!game <name>` to see how far a game got (short names like `gta v` work), `!lib <name>` for a system library, `!next` for the next goal, `!top` for the day's top contributor, `!random` for a game reaching gameplay, `!discord` for a code to join the Discord, or `!help`. The answer slides in on screen with their name: within about 75 seconds for the first command, then within seconds for the next 3 minutes. What viewers type is never shown. Set `CHAT_COMMANDS=1` to turn them on. Every `CHAT_REMINDER_MINUTES`, the channel posts a reminder of the commands in the chat, when the OAuth values are set.
@@ -146,6 +147,25 @@ To upload it automatically:
 3. Set `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` and `YOUTUBE_REFRESH_TOKEN`, then restart.
 
 The logs give each Short's URL and privacy. YouTube can lock uploads from an unaudited API project as private: if they come back `private` while `SHORT_PRIVACY` is `public`, the project needs YouTube's [API audit](https://support.google.com/youtube/contact/yt_api_form).
+
+## Gameplay clips
+
+Every `everyMinutes` (30 by default, on the clock), the streams play the clip in `./gameplay`, full screen and muted: the stream keeps its own soundtrack, and the game's radio would draw copyright claims on the live. The scenes wait while it plays, and a page reload waits for it to end.
+
+1. Prepare the clip on the computer it was recorded on. Any video works (4K, 60 fps, with sound): it comes out at 1080p, 30 fps, H.264, without sound, and replaces the previous clip.
+
+   ```bash
+   tools/gameplay.sh ~/Videos/gta5.mkv --start 1:30 --minutes 3 --caption "Fidelity 4K with ray tracing · RTX 4080 SUPER · recorded Nov 19"
+   ```
+
+   `tools/gameplay.sh --help` lists the options: start, length, title, caption, and how often it plays.
+2. Copy the folder to the server; the pages pick the new clip up within a minute, with no restart or rebuild:
+
+   ```bash
+   rsync -avP --delete gameplay/ user@your-vps:anyps5-live/gameplay/
+   ```
+
+`gameplay/gameplay.json` holds the clip's file, title, caption and `everyMinutes` (and an optional `maxMinutes` to cut it shorter). Add `?gameplay=now` to a page to play it at once. In single-container mode, mount the folder on `/gameplay`. To check the streamer's CPU with a clip: `docker compose run --rm -e OUTPUT=/recordings/test.mp4 -e RECORD_SECONDS=60 -e PAGE="index.html?gameplay=now" streamer`.
 
 ## Edit the fps chart
 

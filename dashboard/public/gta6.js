@@ -32,6 +32,10 @@ function tick() {
   $("count").innerHTML = units.map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join("");
   const ctas = CTAS[gta?.stage] ?? CTAS.released;
   $("cta").textContent = ctas[Math.floor(Date.now() / CTA_MS) % ctas.length];
+  // A gameplay clip (gameplay.js) is announced a minute ahead.
+  const clip = window.Gameplay?.next();
+  const left = clip ? Math.max(0, Math.ceil((clip - Date.now()) / 1000)) : Infinity;
+  if (left <= 60) $("cta").textContent = `🎮 GTA V gameplay in ${Math.floor(left / 60)}:${pad(left % 60)}`;
 }
 
 function renderStatus(status, thread) {
@@ -82,4 +86,9 @@ tick();
 setInterval(tick, 1000);
 refresh();
 setInterval(refresh, 15_000);
-setTimeout(() => location.reload(), RELOAD_MS);
+// A clip playing at reload time ends first.
+function reload() {
+  if (window.Gameplay?.playing()) setTimeout(reload, 10_000);
+  else location.reload();
+}
+setTimeout(reload, RELOAD_MS);

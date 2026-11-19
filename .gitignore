@@ -6,3 +6,5 @@ recordings/
 music/*
 !music/.gitkeep
 dashboard/target/
+gameplay/*
+!gameplay/.gitkeep
