@@ -20,8 +20,7 @@
   const overlay = document.createElement("div");
   overlay.className = "gameplay";
   overlay.innerHTML = `<video muted playsinline preload="auto"></video>
-    <div class="gameplay-badge"><span class="gameplay-tag">▶ Gameplay</span><div><div class="gameplay-title"></div><div class="gameplay-caption"></div></div></div>
-    <div class="gameplay-time"></div>
+    <div class="gameplay-badge"><span class="gameplay-tag">▶ Gameplay</span><div><div class="gameplay-title"></div><div class="gameplay-caption"></div></div><div class="gameplay-time"></div></div>
     <div class="gameplay-bar"><span></span></div>`;
   document.body.append(overlay);
   const video = overlay.querySelector("video");
