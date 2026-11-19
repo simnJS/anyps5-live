@@ -5,6 +5,8 @@
 //! Update the firmware figures when Sony or the jailbreak scene moves.
 use serde_json::{Value, json};
 
+// Only one stage is set at a time: the others wait for the game to move on.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
     /// Out on PS5, but no one can dump it: no public jailbreak reaches the firmware it needs.

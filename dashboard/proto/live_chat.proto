@@ -36,4 +36,8 @@ message LiveChatMessageSnippet {
 message LiveChatMessageAuthorDetails {
   optional string channel_id = 10101;
   optional string display_name = 103;
+  optional bool is_verified = 4;
+  optional bool is_chat_owner = 5;
+  optional bool is_chat_sponsor = 6;
+  optional bool is_chat_moderator = 7;
 }

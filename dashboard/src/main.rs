@@ -7,6 +7,7 @@ use axum::{
     routing::get,
 };
 use chrono::{DateTime, Utc};
+mod automod;
 mod chat;
 mod gta6;
 use regex::Regex;
@@ -1437,6 +1438,14 @@ async fn chat_loop(app: AppState) {
     let mut chat_id: Option<String> = None;
     let mut burst_until = 0_i64;
     let mut asked = HashMap::<String, i64>::new();
+    // AUTOMOD=0 turns it off; it needs the OAuth values with the youtube.force-ssl scope.
+    let automod_on = env::var("AUTOMOD").as_deref() != Ok("0") && oauth_configured();
+    let automod_max = env::var("AUTOMOD_MAX_ACTIONS")
+        .ok()
+        .and_then(|x| x.parse::<usize>().ok())
+        .unwrap_or(40);
+    let mut automod = automod::Automod::default();
+    let mut automod_today = (String::new(), 0_usize);
     loop {
         let live_id = app.live_chat_id.read().await.clone();
         if live_id != chat_id {
@@ -1476,10 +1485,48 @@ async fn chat_loop(app: AppState) {
                             if let Some(token) = response.next_page_token.clone() {
                                 page_token = Some(token);
                             }
-                            let messages = chat::messages(response);
+                            let mut messages = chat::messages(response);
                             if skip_history {
                                 skip_history = false;
                                 continue;
+                            }
+                            if automod_on {
+                                let now = Utc::now().timestamp_millis();
+                                let day = chat::quota_day(now);
+                                if automod_today.0 != day {
+                                    automod_today = (day, 0);
+                                }
+                                let mut caught = Vec::new();
+                                for message in &messages {
+                                    let at = DateTime::parse_from_rfc3339(&message.published_at)
+                                        .map(|at| at.timestamp_millis())
+                                        .unwrap_or(now);
+                                    if let Some(action) = automod.check(message, at) {
+                                        caught.push(action);
+                                    }
+                                }
+                                // A spammer's commands get no answer on screen.
+                                messages.retain(|message| {
+                                    !caught
+                                        .iter()
+                                        .any(|action| action.author_id == message.author_id)
+                                });
+                                for action in caught {
+                                    if automod_today.1 >= automod_max {
+                                        println!(
+                                            "[automod] {automod_max} timeouts today already: {} left alone",
+                                            action.author
+                                        );
+                                        continue;
+                                    }
+                                    automod_today.1 += 1;
+                                    tokio::spawn(moderate(
+                                        app.clone(),
+                                        live_id.clone(),
+                                        action,
+                                        daily_units,
+                                    ));
+                                }
                             }
                             answer_chat_messages(&app, messages, &mut asked, &mut burst_until)
                                 .await;
@@ -1511,14 +1558,142 @@ async fn chat_loop(app: AppState) {
     }
 }
 
-async fn chat_reminder(app: AppState) {
+// One OAuth access token for the chat reminder and the automod, refreshed a minute before it expires.
+static OAUTH_TOKEN: LazyLock<tokio::sync::Mutex<Option<(String, i64)>>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(None));
+
+fn oauth_configured() -> bool {
+    env_set("YOUTUBE_CLIENT_ID").is_some()
+        && env_set("YOUTUBE_CLIENT_SECRET").is_some()
+        && env_set("YOUTUBE_REFRESH_TOKEN").is_some()
+}
+
+async fn oauth_token(app: &AppState) -> Option<String> {
     let (Some(client_id), Some(secret), Some(refresh)) = (
         env_set("YOUTUBE_CLIENT_ID"),
         env_set("YOUTUBE_CLIENT_SECRET"),
         env_set("YOUTUBE_REFRESH_TOKEN"),
     ) else {
+        return None;
+    };
+    let mut cached = OAUTH_TOKEN.lock().await;
+    let now = Utc::now().timestamp_millis();
+    if let Some((token, until)) = cached.as_ref() {
+        if *until > now + 60_000 {
+            return Some(token.clone());
+        }
+    }
+    let token_url = env::var("GOOGLE_TOKEN_URL")
+        .unwrap_or_else(|_| "https://oauth2.googleapis.com/token".into());
+    let response = app
+        .client
+        .post(token_url)
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("client_secret", secret.as_str()),
+            ("refresh_token", refresh.as_str()),
+            ("grant_type", "refresh_token"),
+        ])
+        .send()
+        .await
+        .ok()
+        .filter(|response| response.status().is_success())?;
+    let body = response.json::<Value>().await.ok()?;
+    let token = body["access_token"].as_str()?.to_owned();
+    let lasts = body["expires_in"].as_i64().unwrap_or(3600);
+    *cached = Some((token.clone(), now + lasts * 1000));
+    Some(token)
+}
+
+// Takes `cost` units from the day's chat budget, shared with reading the chat; false once it is spent.
+async fn spend_chat_units(app: &AppState, cost: i64, daily_units: i64) -> bool {
+    let day = chat::quota_day(Utc::now().timestamp_millis());
+    let spent = {
+        let mut persisted = app.persisted.write().await;
+        if persisted["chatUnits"]["day"].as_str() != Some(&day) {
+            persisted["chatUnits"] = json!({"day":day,"units":0});
+        }
+        let units = persisted["chatUnits"]["units"].as_i64().unwrap_or(0);
+        let fits = units + cost <= daily_units;
+        if fits {
+            persisted["chatUnits"]["units"] = json!(units + cost);
+        }
+        fits
+    };
+    if spent {
+        save_persisted(app).await;
+    }
+    spent
+}
+
+// A spammer gets a 5-minute timeout (50 units), and a scam message is deleted too (50 more).
+async fn moderate(app: AppState, live_id: String, action: automod::Action, daily_units: i64) {
+    let cost = if action.delete { 100 } else { 50 };
+    if !spend_chat_units(&app, cost, daily_units).await {
+        println!(
+            "[automod] daily chat budget spent: {} not timed out ({})",
+            action.author, action.reason
+        );
+        return;
+    }
+    let Some(token) = oauth_token(&app).await else {
+        mark_source_error(&app.data, "automod", "Google token refresh failed").await;
         return;
     };
+    let ban = app
+        .client
+        .post("https://www.googleapis.com/youtube/v3/liveChat/bans?part=snippet")
+        .bearer_auth(&token)
+        .json(&json!({"snippet":{"liveChatId":live_id,"type":"temporary","banDurationSeconds":automod::TIMEOUT_SECONDS,"bannedUserDetails":{"channelId":action.author_id}}}))
+        .send()
+        .await;
+    let mut failure = match ban {
+        Ok(response) if response.status().is_success() => None,
+        Ok(response) => Some(format!("YouTube chat timeout {}", response.status())),
+        Err(error) => Some(error.to_string()),
+    };
+    if action.delete {
+        let deleted = app
+            .client
+            .delete(format!(
+                "https://www.googleapis.com/youtube/v3/liveChat/messages?id={}",
+                encode(&action.message_id)
+            ))
+            .bearer_auth(&token)
+            .send()
+            .await;
+        match deleted {
+            Ok(response) if response.status().is_success() => {}
+            Ok(response) => {
+                failure.get_or_insert(format!("YouTube chat delete {}", response.status()));
+            }
+            Err(error) => {
+                failure.get_or_insert(error.to_string());
+            }
+        }
+    }
+    match failure {
+        None => {
+            println!(
+                "[automod] {} timed out for {} min: {}",
+                action.author,
+                automod::TIMEOUT_SECONDS / 60,
+                action.reason
+            );
+            app.data.write().await["sources"]["automod"] =
+                json!({"ok":true,"at":Utc::now().to_rfc3339()});
+        }
+        Some(message) => {
+            println!("[automod] {} not timed out: {message}", action.author);
+            mark_source_error(&app.data, "automod", &message).await;
+        }
+    }
+}
+
+async fn chat_reminder(app: AppState) {
+    if !oauth_configured() {
+        return;
+    }
     let Some(live_id) = app.live_chat_id.read().await.clone() else {
         return;
     };
@@ -1546,27 +1721,7 @@ async fn chat_reminder(app: AppState) {
         persisted["chatReminderAt"] = json!(now);
     }
     save_persisted(&app).await;
-    let token_url = env::var("GOOGLE_TOKEN_URL")
-        .unwrap_or_else(|_| "https://oauth2.googleapis.com/token".into());
-    let tokens = match app
-        .client
-        .post(token_url)
-        .form(&[
-            ("client_id", client_id.as_str()),
-            ("client_secret", secret.as_str()),
-            ("refresh_token", refresh.as_str()),
-            ("grant_type", "refresh_token"),
-        ])
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => response
-            .json::<Value>()
-            .await
-            .ok()
-            .and_then(|v| v["access_token"].as_str().map(str::to_owned)),
-        _ => None,
-    };
+    let tokens = oauth_token(&app).await;
     let Some(token) = tokens else {
         mark_source_error(&app.data, "chatReminder", "Google token refresh failed").await;
         return;

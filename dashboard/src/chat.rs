@@ -50,6 +50,14 @@ pub struct AuthorDetails {
     pub channel_id: Option<String>,
     #[prost(string, optional, tag = "103")]
     pub display_name: Option<String>,
+    #[prost(bool, optional, tag = "4")]
+    pub is_verified: Option<bool>,
+    #[prost(bool, optional, tag = "5")]
+    pub is_chat_owner: Option<bool>,
+    #[prost(bool, optional, tag = "6")]
+    pub is_chat_sponsor: Option<bool>,
+    #[prost(bool, optional, tag = "7")]
+    pub is_chat_moderator: Option<bool>,
 }
 
 pub struct StreamMessage {
@@ -59,6 +67,8 @@ pub struct StreamMessage {
     pub published_at: String,
     pub author_id: String,
     pub author: String,
+    /// The owner, a moderator, a member or a verified channel: the automod leaves them alone.
+    pub trusted: bool,
 }
 
 pub async fn open_stream(
@@ -106,6 +116,14 @@ pub fn messages(response: ListResponse) -> Vec<StreamMessage> {
                 kind: snippet.r#type.unwrap_or_default(),
                 text: snippet.display_message.unwrap_or_default(),
                 published_at: snippet.published_at.unwrap_or_default(),
+                trusted: [
+                    author.is_chat_owner,
+                    author.is_chat_moderator,
+                    author.is_chat_sponsor,
+                    author.is_verified,
+                ]
+                .into_iter()
+                .any(|flag| flag == Some(true)),
                 author_id: author.channel_id.unwrap_or_default(),
                 author: author.display_name.unwrap_or_default(),
             }
@@ -523,6 +541,7 @@ mod tests {
             published_at: String::new(),
             author_id: "viewer-id".into(),
             author: "Viewer".into(),
+            trusted: false,
         }
     }
     fn thread(name: &str, stage: &str, replies: i64, title_id: &str) -> Value {
