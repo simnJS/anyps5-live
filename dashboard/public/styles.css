@@ -199,15 +199,6 @@ h2 { font-size: 20px; font-weight: 700; white-space: nowrap; }
 .mover-bar > span { display: block; height: 100%; background: var(--series-1); }
 .mover-gain { font-size: 42px; font-weight: 800; color: var(--good); text-align: right; }
 
-/* Next milestone */
-.goal-number { font-size: 210px; font-weight: 800; letter-spacing: -0.04em; line-height: 0.95; }
-.goal-row { display: grid; grid-template-columns: 1fr 660px; gap: 64px; flex: 1; min-height: 0; align-items: center; }
-.goal-left { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
-.goal-left-text { font-size: 42px; font-weight: 700; }
-.goal-left-text span { color: var(--good); }
-.goal-meter { height: 30px; border-radius: 10px; background: var(--todo); overflow: hidden; }
-.goal-meter > span { display: block; height: 100%; background: var(--series-1); }
-
 /* Measured fps scene (perf.json) */
 .perf-scene { gap: 22px; padding: 34px 48px 30px; }
 .perf-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; }
@@ -277,12 +268,6 @@ h2 { font-size: 20px; font-weight: 700; white-space: nowrap; }
 .gta6-game-name { font-size: 28px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gta6-game-stage { font-size: 25px; font-weight: 700; color: var(--series-4); white-space: nowrap; }
 .gta6-game-stage.good { color: var(--good); }
-.gains-title { font-size: 25px; color: var(--ink-2); font-weight: 600; margin-bottom: 18px; }
-.gains { display: flex; align-items: flex-end; gap: 10px; height: 340px; }
-.gain { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; height: 100%; }
-.gain-bar { width: 100%; min-height: 4px; border-radius: 6px 6px 0 0; background: var(--series-1); }
-.gain-value { font-size: 19px; font-weight: 700; }
-.gain-date { font-size: 16px; color: var(--muted); white-space: nowrap; }
 
 /* Alerts */
 .alerts { position: absolute; right: 28px; bottom: 24px; width: 760px; z-index: 5; }

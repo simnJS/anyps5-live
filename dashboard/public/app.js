@@ -181,26 +181,7 @@ function renderMap(libraries) {
 const MILESTONE_STEP = 1000;
 let latest = null;
 
-function dailyPace(progress) {
-  if (progress?.week?.done > 0) return progress.week.done / 7;
-  return progress?.day?.done > 0 ? progress.day.done : null;
-}
-
-function etaText(left, pace) {
-  if (!pace) return "";
-  const hours = (left / pace) * 24;
-  if (hours < 1) return "under an hour away";
-  if (hours < 48) return `about ${Math.round(hours)} h away`;
-  return `about ${Math.round(hours / 24)} days away`;
-}
-
-function nextMilestone(progress) {
-  const target = (Math.floor(progress.done / MILESTONE_STEP) + 1) * MILESTONE_STEP;
-  return { target, left: target - progress.done, from: target - MILESTONE_STEP };
-}
-
 // GTA VI on AnyPS5: its stage and the firmware figures come from the dashboard (src/gta6.rs).
-const GTA_SECONDS = 40;
 const THIS_GAME = /grand theft auto\s*(vi|6)\b|\bgta\s*(vi|6)\b/i;
 
 function renderGtaChip(gta) {
@@ -378,46 +359,19 @@ function renderMovers() {
   return true;
 }
 
-function renderMilestoneScene() {
-  const progress = latest?.progress;
-  if (!progress) return false;
-  const { target, left, from } = nextMilestone(progress);
-  const pace = dailyPace(progress);
-  const eta = etaText(left, pace);
-  const points = latest.history ?? [];
-  const gains = points.slice(1).map((point, index) => ({ date: point.date, gain: point.done - points[index].done })).slice(-10);
-  const top = Math.max(1, ...gains.map((entry) => entry.gain));
-  $("scene-milestone").innerHTML = `<div class="scene-body">
-    <div class="scene-tag">Next milestone</div>
-    <div class="goal-row">
-      <div class="goal-left">
-        <div class="goal-number">${fmt(target)}</div>
-        <div class="goal-left-text"><span>${fmt(left)}</span> functions to go${eta ? ` · ${eta}` : ""}</div>
-        <div class="goal-meter"><span style="width:${(((progress.done - from) / MILESTONE_STEP) * 100).toFixed(1)}%"></span></div>
-        <div class="scene-note">${pace ? `Pace: about ${fmt(Math.round(pace))} functions a day over 7 days. ` : ""}${fmt(progress.total)} found so far, and the total still grows as new ones are found.</div>
-      </div>
-      <div>
-        <div class="gains-title">Functions added per update</div>
-        <div class="gains">${gains.map((entry) => `<div class="gain"><span class="gain-value">${fmt(entry.gain)}</span><div class="gain-bar" style="height:${Math.max(1, (Math.max(0, entry.gain) / top) * 78).toFixed(1)}%"></div><span class="gain-date">${shortDate(`${entry.date}T12:00:00Z`).replace(/^\w+ /, "")}</span></div>`).join("")}</div>
-      </div>
-    </div>
-  </div>`;
-  return true;
-}
-
-const DASHBOARD_SECONDS = 45, SCENE_SECONDS = 25;
+// How long each scene stays on screen, in seconds.
+const DASHBOARD_SECONDS = 30, GTA_SECONDS = 25, PERF_SECONDS = 20, SCENE_SECONDS = 15;
 const SCENES = {
   dashboard: { node: "scene-dashboard", title: "Live dashboard", render: () => true, seconds: DASHBOARD_SECONDS },
   games: { node: "scene-games", title: "Game spotlight", render: renderSpotlight, seconds: SCENE_SECONDS },
   contributors: { node: "scene-contributors", title: "Top contributors", render: renderContributors, seconds: SCENE_SECONDS },
-  perf: { node: "scene-perf", title: "GTA V fps", render: renderPerf, seconds: 30 },
+  perf: { node: "scene-perf", title: "GTA V fps", render: renderPerf, seconds: PERF_SECONDS },
   movers: { node: "scene-movers", title: "Biggest gains", render: renderMovers, seconds: SCENE_SECONDS },
-  milestone: { node: "scene-milestone", title: "Next milestone", render: renderMilestoneScene, seconds: SCENE_SECONDS },
   gta6: { node: "scene-gta6", title: "GTA VI", render: renderGta6Scene, seconds: GTA_SECONDS },
 };
 // Most viewers come for GTA VI: it fills every other turn, about half the time. The game spotlight and the top
 // contributors are out of the rotation for now and can still be pinned with ?scene=games or ?scene=contributors.
-const ROTATION = ["dashboard", "gta6", "milestone", "gta6", "dashboard", "gta6", "perf", "gta6", "dashboard", "gta6", "movers", "gta6"];
+const ROTATION = ["dashboard", "gta6", "perf", "gta6", "dashboard", "gta6", "movers", "gta6"];
 const params = new URLSearchParams(location.search);
 const pinnedScene = SCENES[params.get("scene")] ? params.get("scene") : null;
 const TRANSITION_MS = 500, PREPARE_SECONDS = 3;
