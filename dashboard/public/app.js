@@ -337,6 +337,40 @@ function renderPerf() {
   return true;
 }
 
+// HangarAI, the open-source app the AnyKyty fork and this live were built with. Every text of its scene and card is here.
+const PROMO = {
+  name: "HangarAI",
+  site: "hangarai.dev",
+  discord: "discord.gg/hangarai",
+  tag: "Made with HangarAI",
+  title: "The AnyKyty fork and this live were built with HangarAI",
+  pitch: "A team of coding agents in one native window. Claude Code and Codex: an orchestrator plans, workers build in git worktrees, Hangar checks and lands.",
+  facts: ["Free and open source", "Native Rust app, no Electron", "Windows · macOS · Linux"],
+  // The card is one line each: the kicker reads into the title.
+  cardKicker: "AnyKyty and this live were built with",
+};
+
+function renderHangar() {
+  $("scene-hangar").innerHTML = `<div class="scene-body hangar-scene">
+    <div class="hangar-main">
+      <div class="hangar-brand"><img src="hangar-logo.svg" alt=""><span>${escape(PROMO.name)}</span><code>${escape(PROMO.site)}</code></div>
+      <div><div class="scene-tag">${escape(PROMO.tag)}</div><h2 class="scene-title">${escape(PROMO.title)}</h2></div>
+      <p class="hangar-pitch">${escape(PROMO.pitch)}</p>
+      <ul class="hangar-facts">${PROMO.facts.map((fact) => `<li>${escape(fact)}</li>`).join("")}</ul>
+      <div class="hangar-join">
+        <img class="hangar-qr" src="hangar-discord-qr.svg" alt="">
+        <div><div class="hangar-join-title">Join the Discord</div><div class="hangar-join-url">${escape(PROMO.discord)}</div><div class="hangar-join-site">Download it free at <strong>${escape(PROMO.site)}</strong></div></div>
+      </div>
+    </div>
+    <div class="hangar-shot"><img src="hangar-app.webp" alt=""></div>
+  </div>`;
+  return true;
+}
+
+function hangarCta() {
+  return { kind: "hangar", kicker: PROMO.cardKicker, title: `${PROMO.name} · ${PROMO.site}`, meta: `Free and open source · ${PROMO.discord}`, image: "hangar-logo.svg" };
+}
+
 function renderContributors() {
   const github = latest?.github;
   if (!github?.topAuthors?.length) return false;
@@ -360,18 +394,20 @@ function renderMovers() {
 }
 
 // How long each scene stays on screen, in seconds.
-const DASHBOARD_SECONDS = 30, GTA_SECONDS = 25, PERF_SECONDS = 20, SCENE_SECONDS = 15;
+const DASHBOARD_SECONDS = 30, GTA_SECONDS = 25, PERF_SECONDS = 20, HANGAR_SECONDS = 15, SCENE_SECONDS = 15;
 const SCENES = {
   dashboard: { node: "scene-dashboard", title: "Live dashboard", render: () => true, seconds: DASHBOARD_SECONDS },
   games: { node: "scene-games", title: "Game spotlight", render: renderSpotlight, seconds: SCENE_SECONDS },
   contributors: { node: "scene-contributors", title: "Top contributors", render: renderContributors, seconds: SCENE_SECONDS },
   perf: { node: "scene-perf", title: "GTA V fps", render: renderPerf, seconds: PERF_SECONDS },
+  hangar: { node: "scene-hangar", title: "Made with HangarAI", render: renderHangar, seconds: HANGAR_SECONDS },
   movers: { node: "scene-movers", title: "Biggest gains", render: renderMovers, seconds: SCENE_SECONDS },
   gta6: { node: "scene-gta6", title: "GTA VI", render: renderGta6Scene, seconds: GTA_SECONDS },
 };
 // Most viewers come for GTA VI: it fills every other turn, about half the time. The game spotlight and the top
 // contributors are out of the rotation for now and can still be pinned with ?scene=games or ?scene=contributors.
-const ROTATION = ["dashboard", "gta6", "perf", "gta6", "dashboard", "gta6", "movers", "gta6"];
+// HangarAI follows the GTA V fps chart, since that work was built with it.
+const ROTATION = ["dashboard", "gta6", "perf", "hangar", "gta6", "dashboard", "gta6", "movers", "gta6"];
 const params = new URLSearchParams(location.search);
 const pinnedScene = SCENES[params.get("scene")] ? params.get("scene") : null;
 const TRANSITION_MS = 500, PREPARE_SECONDS = 3;
@@ -406,7 +442,7 @@ function prepareNext() {
   for (let tries = 0; tries < ROTATION.length; tries += 1) {
     const next = nextSceneName();
     if (SCENES[next.name].render()) {
-      $(SCENES[next.name].node).querySelector("img")?.decode().catch(() => {});
+      $(SCENES[next.name].node).querySelectorAll("img").forEach((img) => img.decode().catch(() => {}));
       return next;
     }
     rotationIndex = next.index;
@@ -562,7 +598,7 @@ function discordCta() {
 
 function remindCta() {
   if (document.hidden) return;
-  const cards = [() => likeCta("Hit like to support the stream"), gta6Cta, subscribeCta, gta6Cta, discordCta];
+  const cards = [() => likeCta("Hit like to support the stream"), gta6Cta, hangarCta, subscribeCta, gta6Cta, discordCta];
   if (latest?.chat?.enabled) cards.splice(1, 0, chatCta);
   pushAlert(cards[ctaTurn % cards.length]());
   ctaTurn += 1;
@@ -586,6 +622,7 @@ function renderLikes(youtube) {
 function runDemo(kind) {
   if (kind === "cta") {
     pushAlert(gta6Cta());
+    pushAlert(hangarCta());
     pushAlert(likeCta("Hit like to support the stream"));
     pushAlert(subscribeCta());
   }

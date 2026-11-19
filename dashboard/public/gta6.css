@@ -50,4 +50,7 @@
 .gta-latest { min-width: 0; font-size: 22px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gta-latest strong { color: var(--ink); }
 .gta-cta { padding: 10px 24px; border-radius: 12px; background: #351518; border: 2px solid var(--series-8); font-size: 24px; font-weight: 800; white-space: nowrap; }
-.gta-legal { font-size: 15px; color: var(--muted); }
+.gta-legal { display: flex; justify-content: space-between; align-items: center; gap: 24px; font-size: 15px; color: var(--muted); white-space: nowrap; }
+.gta-credit { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.gta-credit img { width: 18px; height: 18px; border-radius: 4px; }
+.gta-credit strong { color: var(--ink); }
