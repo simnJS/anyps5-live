@@ -1720,13 +1720,24 @@ async fn chat_reminder(app: AppState) {
         }
         persisted["chatReminderAt"] = json!(now);
     }
+    // In turn: what AnyPS5 is (first), then the commands.
+    let text = {
+        let mut persisted = app.persisted.write().await;
+        let turn = persisted["chatReminderTurn"].as_i64().unwrap_or(0);
+        persisted["chatReminderTurn"] = json!(turn + 1);
+        if turn % 2 == 0 {
+            chat::about_message(&gta6::chat_line())
+        } else {
+            chat::CHAT_REMINDER.to_owned()
+        }
+    };
     save_persisted(&app).await;
     let tokens = oauth_token(&app).await;
     let Some(token) = tokens else {
         mark_source_error(&app.data, "chatReminder", "Google token refresh failed").await;
         return;
     };
-    let response = app.client.post("https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet").bearer_auth(token).json(&json!({"snippet":{"liveChatId":live_id,"type":"textMessageEvent","textMessageDetails":{"messageText":chat::CHAT_REMINDER}}})).send().await;
+    let response = app.client.post("https://www.googleapis.com/youtube/v3/liveChat/messages?part=snippet").bearer_auth(token).json(&json!({"snippet":{"liveChatId":live_id,"type":"textMessageEvent","textMessageDetails":{"messageText":text}}})).send().await;
     match response {
         Ok(r) if r.status().is_success() => {
             app.data.write().await["sources"]["chatReminder"] =
@@ -1862,7 +1873,7 @@ async fn main() -> Result<()> {
     if let Some(parent) = data_file.parent() {
         fs::create_dir_all(parent).await?;
     }
-    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null});
+    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0});
     if let Ok(bytes) = fs::read(&data_file).await {
         if let Ok(saved) = serde_json::from_slice::<Value>(&bytes) {
             for key in [
@@ -1873,6 +1884,7 @@ async fn main() -> Result<()> {
                 "releaseTag",
                 "chatUnits",
                 "chatReminderAt",
+                "chatReminderTurn",
             ] {
                 if let Some(v) = saved.get(key) {
                     persisted[key] = v.clone();

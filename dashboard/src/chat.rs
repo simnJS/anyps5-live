@@ -139,6 +139,13 @@ const STAGES: [&str; 5] = [
     "In game",
 ];
 const DISCORD: &str = "discord.gg/BHFztBPUe";
+// Posted in the chat in turn with CHAT_REMINDER: what AnyPS5 is, its repository, and where GTA VI stands.
+pub const REPOSITORY: &str = "https://github.com/simnJS/AnyPS5";
+pub fn about_message(gta6: &str) -> String {
+    format!(
+        "🎮 AnyPS5 converts PS5 games to run natively on PC, with no emulator. Open source: {REPOSITORY} · {gta6}"
+    )
+}
 pub const CHAT_REMINDER: &str = "💬 Ask the stream: !gta for GTA VI on AnyPS5, !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
 static COMMAND_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^!(gta|game|lib|help|discord|next|top|random)\b\s*(.*)$").unwrap()

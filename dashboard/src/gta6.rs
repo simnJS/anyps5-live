@@ -27,6 +27,21 @@ pub const JAILBREAK_FIRMWARE: &str = "13.60";
 
 const STEPS: [&str; 3] = ["Out on PS5", "Dumped", "Playable on PC"];
 
+/// GTA VI's status in a line of the chat's "about" message.
+pub fn chat_line() -> String {
+    chat_line_at(STAGE)
+}
+
+fn chat_line_at(stage: Stage) -> String {
+    match stage {
+        Stage::Released => format!(
+            "No work on GTA VI yet: waiting for a dump (it needs PS5 firmware {REQUIRED_FIRMWARE})."
+        ),
+        Stage::Dumped => "GTA VI is dumped: AnyPS5 tests have started.".into(),
+        Stage::Playable => "GTA VI is playable on PC with AnyPS5.".into(),
+    }
+}
+
 /// Before a dump, no one can have tested it: a GTA VI test thread is a placeholder (the one opened on 15 November
 /// says "Does not convert" without a try), so the status above wins over it.
 pub fn reports_count() -> bool {
@@ -92,5 +107,19 @@ mod tests {
         assert_eq!(status_at(Stage::Playable)["step"], 2);
         assert_eq!(released["firmware"]["required"], "14.23");
         assert!(chrono::DateTime::parse_from_rfc3339(RELEASED_AT).is_ok());
+    }
+
+    #[test]
+    fn the_about_message_fits_a_chat_message_at_every_stage() {
+        for stage in [Stage::Released, Stage::Dumped, Stage::Playable] {
+            let about = crate::chat::about_message(&chat_line_at(stage));
+            assert!(
+                about.chars().count() <= 200,
+                "{} chars: {about}",
+                about.chars().count()
+            );
+            assert!(about.contains("https://github.com/simnJS/AnyPS5"));
+        }
+        assert!(chat_line_at(Stage::Released).contains("waiting for a dump"));
     }
 }
