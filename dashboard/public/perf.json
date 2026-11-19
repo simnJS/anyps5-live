@@ -1,0 +1,31 @@
+{
+  "tag": "AnyKyty · measured fps",
+  "title": "GTA V, Fidelity 4K with ray tracing",
+  "setup": "RTX 4080 SUPER · Linux · warm cache · same scenes, every bar measured",
+  "max": 100,
+  "target": 60,
+  "groups": [
+    {
+      "name": "Prologue",
+      "bars": [
+        { "label": "Start, Nov 18", "detail": "emulated RT", "fps": 45.5, "kind": "start" },
+        { "label": "Native ray queries", "detail": "+ driver BVH builds", "fps": 68.7, "kind": "shipped" },
+        { "label": "PGO, shader store", "detail": "universal oracle, GPU idle gaps", "fps": 79.8, "kind": "shipped" },
+        { "label": "Readback wall fix", "detail": "", "fps": 92.9, "kind": "shipped" }
+      ]
+    },
+    {
+      "name": "City, dense open world",
+      "bars": [
+        { "label": "Evening, Nov 18", "detail": "", "fps": 26.2, "kind": "start" },
+        { "label": "Readback wall fix", "detail": "", "fps": 29.8, "kind": "shipped" },
+        { "label": "Fast RT shadows", "detail": "+ BLAS update fix", "fps": 56.2, "kind": "test" }
+      ]
+    }
+  ],
+  "notes": [
+    "Readback wall fix: game threads no longer wait for the whole GPU queue when they read pages the GPU wrote nearby. Pushed.",
+    "Fast RT shadows: the shadow ray program went from 23 ms to 1.3 ms per frame. Held back while a rare GPU hang (2 in about 45 sessions) is located.",
+    "The main hang it exposed, BLAS updates turning triangles on or off (forbidden by Vulkan), is fixed and pushed. Every change is generic, with no per-game rule."
+  ]
+}

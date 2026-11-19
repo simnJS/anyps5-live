@@ -16,7 +16,8 @@ An unofficial community project: it is not affiliated with the AnyPS5 maintainer
 
 - **Header**: GTA VI's status on AnyPS5 (not dumped yet, the firmware it needs and the highest public jailbreak) and a countdown to the next scene.
 - **GTA VI scene**: every other scene, for 40 seconds: where GTA VI stands on AnyPS5 (out on PS5, dumped, playable on PC), the PS5 firmware it needs against the highest public jailbreak, the time since its release and the Rockstar games already on AnyPS5. Its status is set in one place, `dashboard/src/gta6.rs`, which also feeds the GTA VI page and `!gta`.
-- **Rotating scenes**: the dashboard for 45 seconds, then a full-screen scene, readable on a phone: GTA VI, the next milestone, top contributors, the biggest gains. The game spotlight is out of the rotation while GTA VI is new; `?scene=games` still shows it.
+- **GTA V fps scene**: AnyKyty's measured frame rates in GTA V, Fidelity 4K with ray tracing, step by step, with the gain of what shipped and of what is still in test. Its figures and texts are all in `dashboard/public/perf.json` (see [Edit the fps chart](#edit-the-fps-chart)).
+- **Rotating scenes**: the dashboard for 45 seconds, then a full-screen scene, readable on a phone: GTA VI, the next milestone, GTA V fps, the biggest gains. The game spotlight and the top contributors are out of the rotation while GTA VI is new; `?scene=games` and `?scene=contributors` still show them.
 - **Alerts**: a card slides in for each new merged PR, new game report, finished library and new release. Each 1,000th function gets a full-screen celebration.
 - **Chat commands**: viewers type `!gta` for GTA VI's status, `!game <name>` to see how far a game got (short names like `gta v` work), `!lib <name>` for a system library, `!next` for the next goal, `!top` for the day's top contributor, `!random` for a game reaching gameplay, `!discord` for a code to join the Discord, or `!help`. The answer slides in on screen with their name: within about 75 seconds for the first command, then within seconds for the next 3 minutes. What viewers type is never shown. Set `CHAT_COMMANDS=1` to turn them on. Every `CHAT_REMINDER_MINUTES`, the channel posts a reminder of the commands in the chat, when the OAuth values are set.
 - **Calls to action**: a like, subscribe, Discord or chat command card every 3 minutes and after each milestone, and a live like goal beside the title once `YOUTUBE_API_KEY` and `YOUTUBE_VIDEO_ID` are set.
@@ -84,7 +85,7 @@ docker run -d --restart unless-stopped -e YOUTUBE_STREAM_KEY=... -v anyps5-data:
 
   Then open <http://localhost:8080> in a window sized 1920×1080.
 
-- **See one scene or alert**: add `?scene=gta6` (or `games`, `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
+- **See one scene or alert**: add `?scene=gta6` (or `perf`, `games`, `contributors`, `movers`, `milestone`) to pin a scene, or `?demo=alert` / `?demo=milestone` / `?demo=chat` to play an alert.
 
 - **Record 30 seconds to a file** instead of streaming:
 
@@ -144,6 +145,17 @@ To upload it automatically:
 3. Set `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` and `YOUTUBE_REFRESH_TOKEN`, then restart.
 
 The logs give each Short's URL and privacy. YouTube can lock uploads from an unaudited API project as private: if they come back `private` while `SHORT_PRIVACY` is `public`, the project needs YouTube's [API audit](https://support.google.com/youtube/contact/yt_api_form).
+
+## Edit the fps chart
+
+The GTA V fps scene draws `dashboard/public/perf.json`, nothing else:
+
+- `tag`, `title`, `setup`: the lines above the chart. `max` is the top of the scale, `target` the dashed line (60 fps).
+- `groups`: one panel each, with its `name` and its `bars`. A bar has a `label`, an optional `detail` line, its `fps`, and a `kind`: `start` (the starting point, grey), `shipped` (blue) or `test` (dashed, marked "in test, not shipped").
+- The gains beside each panel's name are computed: the best `shipped` bar against the `start` bar as a percentage, the best `test` bar as a factor.
+- `notes`: the lines under the chart.
+
+`cargo test` checks the file, so a missing field or an unknown kind fails the build instead of leaving the scene blank. The scene reads the file every 5 minutes; after a change, rebuild the dashboard (`docker compose up -d --build dashboard`).
 
 ## Thumbnail
 

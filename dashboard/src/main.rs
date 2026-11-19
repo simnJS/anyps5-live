@@ -2043,4 +2043,39 @@ mod tests {
         assert_eq!(state["sources"]["progress"]["ok"], true);
         assert_eq!(state["sources"]["history"]["ok"], true);
     }
+
+    // perf.json is edited by hand: a missing field or an unknown kind would leave its scene blank on the stream.
+    #[test]
+    fn the_fps_chart_data_is_complete() {
+        let perf: serde_json::Value =
+            serde_json::from_str(include_str!("../public/perf.json")).expect("perf.json is JSON");
+        for key in ["tag", "title", "setup"] {
+            assert!(perf[key].as_str().is_some_and(|x| !x.is_empty()), "{key}");
+        }
+        let max = perf["max"].as_f64().expect("max");
+        let groups = perf["groups"].as_array().expect("groups");
+        assert!(!groups.is_empty());
+        for group in groups {
+            assert!(group["name"].as_str().is_some_and(|x| !x.is_empty()));
+            let bars = group["bars"].as_array().expect("bars");
+            assert!(!bars.is_empty());
+            assert!(
+                bars.iter().any(|bar| bar["kind"] == "start"),
+                "each group needs a start bar for its gain"
+            );
+            for bar in bars {
+                let fps = bar["fps"].as_f64().expect("fps");
+                assert!(fps > 0.0 && fps <= max, "{bar}");
+                assert!(
+                    ["start", "shipped", "test"].contains(&bar["kind"].as_str().unwrap_or("")),
+                    "{bar}"
+                );
+                assert!(
+                    bar["label"].as_str().is_some_and(|x| !x.is_empty()),
+                    "{bar}"
+                );
+            }
+        }
+        assert!(perf["notes"].as_array().is_some());
+    }
 }

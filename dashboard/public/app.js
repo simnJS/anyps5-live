@@ -295,6 +295,67 @@ function renderSpotlight() {
   return true;
 }
 
+// Measured fps chart. Its figures and texts live in perf.json, the only file to edit: each group is a panel,
+// each bar has a kind, "start" (where it began), "shipped" or "test" (measured, not shipped yet).
+let perf = null;
+const PERF_REFRESH_MS = 5 * 60_000;
+
+async function refreshPerf() {
+  try {
+    const response = await fetch("perf.json", { cache: "no-store" });
+    if (response.ok) perf = await response.json();
+  } catch (error) {
+    console.error("perf", error);
+  }
+}
+
+const oneDecimal = (value) => value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+// The gain over the group's start: what shipped as a percentage, what is still in test as a factor.
+function perfGains(bars) {
+  const start = bars.find((bar) => bar.kind === "start")?.fps;
+  if (!start) return "";
+  const best = (kind) => Math.max(0, ...bars.filter((bar) => bar.kind === kind).map((bar) => bar.fps));
+  const parts = [];
+  if (best("shipped")) parts.push(`<span class="perf-gain">+${Math.round((best("shipped") / start - 1) * 100)} %</span>`);
+  if (best("test")) parts.push(`<span class="perf-gain test">×${oneDecimal(best("test") / start)} in test</span>`);
+  return parts.join("");
+}
+
+function perfPanel(group, max, target) {
+  const ticks = [];
+  for (let value = 0; value <= max; value += 20) ticks.push(`<div class="perf-tick" style="bottom:${(value / max) * 100}%"><span>${value}</span></div>`);
+  const line = target ? `<div class="perf-target" style="bottom:${(target / max) * 100}%"><span>${target} fps</span></div>` : "";
+  const bars = group.bars.map((bar, index) => {
+    const height = (Math.min(bar.fps, max) / max) * 100;
+    return `<div class="perf-col"><div class="perf-bar ${escape(bar.kind)}" style="height:${height}%;animation-delay:${index * 0.12}s"></div><div class="perf-value" style="bottom:${height}%;animation-delay:${0.5 + index * 0.12}s"><span>${oneDecimal(bar.fps)}</span></div></div>`;
+  }).join("");
+  const labels = group.bars.map((bar) => `<div class="perf-label"><strong>${escape(bar.label)}</strong>${bar.detail ? `<span>${escape(bar.detail)}</span>` : ""}${bar.kind === "test" ? `<em>in test, not shipped</em>` : ""}</div>`).join("");
+  return `<section class="perf-panel" style="grid-column:span ${group.bars.length}">
+    <header class="perf-panel-head"><h3>${escape(group.name)}</h3>${perfGains(group.bars)}</header>
+    <div class="perf-plot">${ticks.join("")}${line}<div class="perf-bars">${bars}</div></div>
+    <div class="perf-labels">${labels}</div>
+  </section>`;
+}
+
+function renderPerf() {
+  if (!perf?.groups?.length) return false;
+  const max = perf.max ?? 100;
+  const columns = perf.groups.reduce((sum, group) => sum + group.bars.length, 0);
+  const kinds = new Set(perf.groups.flatMap((group) => group.bars.map((bar) => bar.kind)));
+  const legend = [["start", "Starting point"], ["shipped", "Shipped"], ["test", "In test"]].filter(([kind]) => kinds.has(kind))
+    .map(([kind, name]) => `<span class="perf-key"><span class="perf-swatch ${kind}"></span>${name}</span>`).join("");
+  $("scene-perf").innerHTML = `<div class="scene-body perf-scene">
+    <div class="perf-head">
+      <div><div class="scene-tag">${escape(perf.tag)}</div><h2 class="scene-title">${escape(perf.title)}</h2><div class="perf-setup">${escape(perf.setup)}</div></div>
+      <div class="perf-legend">${legend}</div>
+    </div>
+    <div class="perf-panels" style="grid-template-columns:repeat(${columns}, 1fr)">${perf.groups.map((group) => perfPanel(group, max, perf.target)).join("")}</div>
+    ${perf.notes?.length ? `<ul class="perf-notes">${perf.notes.map((note) => `<li>${escape(note)}</li>`).join("")}</ul>` : ""}
+  </div>`;
+  return true;
+}
+
 function renderContributors() {
   const github = latest?.github;
   if (!github?.topAuthors?.length) return false;
@@ -349,13 +410,14 @@ const SCENES = {
   dashboard: { node: "scene-dashboard", title: "Live dashboard", render: () => true, seconds: DASHBOARD_SECONDS },
   games: { node: "scene-games", title: "Game spotlight", render: renderSpotlight, seconds: SCENE_SECONDS },
   contributors: { node: "scene-contributors", title: "Top contributors", render: renderContributors, seconds: SCENE_SECONDS },
+  perf: { node: "scene-perf", title: "GTA V fps", render: renderPerf, seconds: 30 },
   movers: { node: "scene-movers", title: "Biggest gains", render: renderMovers, seconds: SCENE_SECONDS },
   milestone: { node: "scene-milestone", title: "Next milestone", render: renderMilestoneScene, seconds: SCENE_SECONDS },
   gta6: { node: "scene-gta6", title: "GTA VI", render: renderGta6Scene, seconds: GTA_SECONDS },
 };
-// Most viewers come for GTA VI: it fills every other turn, about half the time. The game spotlight is out of the
-// rotation for now and can still be pinned with ?scene=games.
-const ROTATION = ["dashboard", "gta6", "milestone", "gta6", "dashboard", "gta6", "contributors", "gta6", "dashboard", "gta6", "movers", "gta6"];
+// Most viewers come for GTA VI: it fills every other turn, about half the time. The game spotlight and the top
+// contributors are out of the rotation for now and can still be pinned with ?scene=games or ?scene=contributors.
+const ROTATION = ["dashboard", "gta6", "milestone", "gta6", "dashboard", "gta6", "perf", "gta6", "dashboard", "gta6", "movers", "gta6"];
 const params = new URLSearchParams(location.search);
 const pinnedScene = SCENES[params.get("scene")] ? params.get("scene") : null;
 const TRANSITION_MS = 500, PREPARE_SECONDS = 3;
@@ -632,6 +694,8 @@ setInterval(tickScenes, 1000);
 setInterval(tickGtaSince, 1000);
 refresh();
 setInterval(refresh, REFRESH_MS);
+refreshPerf();
+setInterval(refreshPerf, PERF_REFRESH_MS);
 refreshChat();
 setInterval(refreshChat, 2000);
 setInterval(remindCta, CTA_EVERY_MS);

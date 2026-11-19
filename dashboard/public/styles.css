@@ -208,6 +208,47 @@ h2 { font-size: 20px; font-weight: 700; white-space: nowrap; }
 .goal-meter { height: 30px; border-radius: 10px; background: var(--todo); overflow: hidden; }
 .goal-meter > span { display: block; height: 100%; background: var(--series-1); }
 
+/* Measured fps scene (perf.json) */
+.perf-scene { gap: 22px; padding: 34px 48px 30px; }
+.perf-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; }
+.perf-scene .scene-title { font-size: 54px; }
+.perf-setup { margin-top: 8px; font-size: 24px; color: var(--muted); }
+.perf-legend { display: flex; gap: 26px; padding-bottom: 6px; white-space: nowrap; }
+.perf-key { display: flex; align-items: center; gap: 10px; font-size: 22px; color: var(--ink-2); }
+.perf-swatch { width: 22px; height: 22px; border-radius: 6px; }
+.perf-panels { display: grid; column-gap: 56px; flex: 1; min-height: 0; }
+.perf-panel { display: grid; grid-template-rows: auto 1fr auto; gap: 14px; min-height: 0; }
+.perf-panel-head { display: flex; align-items: baseline; gap: 16px; padding-left: 46px; }
+.perf-panel-head h3 { margin: 0; font-size: 32px; font-weight: 800; }
+.perf-gain { padding: 4px 14px; border-radius: 999px; background: rgba(12, 163, 12, 0.16); color: var(--good); font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.perf-gain.test { background: rgba(57, 135, 229, 0.16); color: var(--series-1); }
+.perf-plot { position: relative; margin: 46px 0 0 46px; border-bottom: 2px solid var(--axis); }
+.perf-tick { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--grid); }
+.perf-tick:first-child { border-top: 0; }
+.perf-tick span { position: absolute; right: calc(100% + 12px); top: -12px; font-size: 19px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.perf-target { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed var(--series-4); z-index: 3; pointer-events: none; }
+.perf-target span { position: absolute; left: 8px; bottom: 4px; font-size: 19px; font-weight: 700; color: var(--series-4); }
+.perf-bars { position: absolute; inset: 0; display: flex; }
+.perf-col { position: relative; flex: 1; z-index: 2; }
+.perf-bar { position: absolute; bottom: 0; left: 20%; right: 20%; border-radius: 10px 10px 0 0; transform-origin: bottom; }
+.perf-bar.start, .perf-swatch.start { background: #6f6d68; }
+.perf-bar.shipped, .perf-swatch.shipped { background: var(--series-1); }
+.perf-bar.test, .perf-swatch.test { background: rgba(57, 135, 229, 0.18); border: 3px dashed var(--series-1); border-bottom: 0; }
+.perf-value { position: absolute; left: 0; right: 0; z-index: 4; margin-bottom: 8px; text-align: center; font-size: 40px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.perf-value span { padding: 0 10px; border-radius: 8px; background: var(--surface); }
+/* The scene is filled seconds before it shows: the bars grow once it comes in, not while it is still hidden. */
+.scene.entering .perf-bar, .scene.active .perf-bar { animation: perf-grow 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.scene.entering .perf-value, .scene.active .perf-value { animation: perf-fade 0.4s ease-out both; }
+@keyframes perf-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes perf-fade { from { opacity: 0; } to { opacity: 1; } }
+.perf-labels { display: flex; margin-left: 46px; }
+.perf-label { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 6px; text-align: center; line-height: 1.2; text-wrap: balance; }
+.perf-label strong { font-size: 21px; font-weight: 700; color: var(--ink); }
+.perf-label span { font-size: 18px; color: var(--muted); }
+.perf-label em { font-style: normal; font-size: 17px; font-weight: 700; color: var(--series-1); }
+.perf-notes { margin: 0; padding: 16px 0 0; list-style: none; border-top: 1px solid var(--grid); display: flex; flex-direction: column; gap: 6px; }
+.perf-notes li { font-size: 20px; line-height: 1.35; color: var(--ink-2); }
+
 /* GTA VI scene */
 .gta6-scene { display: grid; grid-template-columns: 1fr 560px; gap: 56px; padding: 48px 56px; }
 .gta6-main { display: flex; flex-direction: column; justify-content: center; gap: 40px; min-width: 0; }
