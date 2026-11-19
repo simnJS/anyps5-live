@@ -40,7 +40,8 @@ recorded=$(date -r "$source_video" +"%b %-d")
 
 folder="$(cd "$(dirname "$0")/.." && pwd)/gameplay"
 mkdir -p "$folder"
-name="gta5-$(date -r "$source_video" +%Y%m%d-%H%M).mp4"
+# Named after the recording and the encode, so the pages see every new cut as a new clip and show it soon.
+name="gta5-$(date -r "$source_video" +%Y%m%d-%H%M)-$(date +%H%M%S).mp4"
 length=()
 [ -n "$minutes" ] && length=(-t "$(awk -v m="$minutes" 'BEGIN { print m * 60 }')")
 
