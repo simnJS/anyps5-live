@@ -1459,7 +1459,7 @@ async fn chat_loop(app: AppState) {
     let daily_units = env::var("CHAT_DAILY_UNITS")
         .ok()
         .and_then(|x| x.parse::<i64>().ok())
-        .unwrap_or(8000);
+        .unwrap_or(4400);
     let idle = env::var("CHAT_POLL_SECONDS")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
@@ -1584,7 +1584,10 @@ async fn chat_loop(app: AppState) {
             }
         }
         let now = Utc::now().timestamp_millis();
-        let delay = chat::next_chat_delay(now, burst_until, daily_units - units, idle);
+        let spent = app.persisted.read().await["chatUnits"]["units"]
+            .as_i64()
+            .unwrap_or(units + 5);
+        let delay = chat::next_chat_delay(now, burst_until, spent, daily_units, idle);
         tokio::time::sleep(Duration::from_millis(delay)).await;
     }
 }
@@ -1731,7 +1734,7 @@ async fn chat_reminder(app: AppState) {
     let minutes = env::var("CHAT_REMINDER_MINUTES")
         .ok()
         .and_then(|x| x.parse::<i64>().ok())
-        .unwrap_or(60)
+        .unwrap_or(15)
         .max(0);
     if minutes == 0 {
         return;
@@ -1751,14 +1754,15 @@ async fn chat_reminder(app: AppState) {
         }
         persisted["chatReminderAt"] = json!(now);
     }
-    // In turn: what AnyPS5 is (first), the commands, then a like and subscribe.
+    // In turn: what AnyPS5 is, a GitHub star, the commands, then a like and subscribe.
     let text = {
         let mut persisted = app.persisted.write().await;
         let turn = persisted["chatReminderTurn"].as_i64().unwrap_or(0);
         persisted["chatReminderTurn"] = json!(turn + 1);
-        match turn % 3 {
+        match turn % 4 {
             0 => chat::about_message(&gta6::chat_line()),
-            1 => chat::CHAT_REMINDER.to_owned(),
+            1 => chat::CHAT_STAR.to_owned(),
+            2 => chat::CHAT_REMINDER.to_owned(),
             _ => chat::CHAT_LIKE.to_owned(),
         }
     };
@@ -1991,14 +1995,15 @@ async fn main() -> Result<()> {
         if env::var("CHAT_REMINDER_MINUTES")
             .ok()
             .and_then(|x| x.parse::<u64>().ok())
-            .unwrap_or(60)
+            .unwrap_or(15)
             > 0
         {
             tokio::spawn({
                 let app = app.clone();
                 async move {
+                    // Checked every minute, so a message goes out on time at a short cadence too.
                     loop {
-                        tokio::time::sleep(Duration::from_secs(300)).await;
+                        tokio::time::sleep(Duration::from_secs(60)).await;
                         chat_reminder(app.clone()).await;
                     }
                 }
@@ -2092,9 +2097,9 @@ mod tests {
         assert_eq!(super::AUTHENTICATED_GITHUB_REFRESH_SECONDS, 120);
         assert_eq!(super::UNAUTHENTICATED_GITHUB_REFRESH_SECONDS, 600);
         assert_eq!(super::COVER_REFRESH_SECONDS, 10_800);
-        // 720 likes + 1,200 chat reminder + 8,000 chat polling = 9,920 units/day.
+        // 720 likes + 4,800 chat messages (one every 15 min) + 4,400 chat reading = 9,920 units/day.
         let likes_daily = 24 * 60 * 60 / super::YOUTUBE_STATS_REFRESH_SECONDS * 1;
-        assert_eq!(likes_daily + 1_200 + 8_000, 9_920);
+        assert_eq!(likes_daily + 24 * 4 * 50 + 4_400, 9_920);
     }
 
     #[test]

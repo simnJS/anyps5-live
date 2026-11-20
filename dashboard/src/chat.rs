@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use prost::Message;
 use serde_json::{Value, json};
 use std::sync::LazyLock;
@@ -146,6 +146,7 @@ pub fn about_message(gta6: &str) -> String {
         "🎮 AnyPS5 converts PS5 games to run natively on PC, with no emulator. Open source: {REPOSITORY} · {gta6}"
     )
 }
+pub const CHAT_STAR: &str = "⭐ Support AnyPS5 with a star on GitHub: https://github.com/simnJS/AnyPS5 · It's free and helps the project get seen. Thank you!";
 pub const CHAT_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe to follow AnyPS5 and GTA VI on PC: the dump shows up here first. Every like helps more people find it!";
 pub const CHAT_REMINDER: &str = "💬 Ask the stream: !gta for GTA VI on AnyPS5, !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
 static COMMAND_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -514,19 +515,41 @@ pub fn command_answer(
     )
 }
 
+const DAY_MS: f64 = 86_400_000.0;
+// A tenth of the day's chat budget can be spent ahead of the even pace, for bursts of commands.
+const PACE_RESERVE: f64 = 0.1;
+
+/// How long until the chat stream opens again (5 units each). Within a burst of commands it reopens at
+/// once, but never ahead of an even pace over the quota day (plus a reserve): a busy morning cannot spend
+/// the whole budget and leave the chat unread until the next day.
 pub fn next_chat_delay(
     now_ms: i64,
     burst_until_ms: i64,
-    remaining_units: i64,
+    spent_units: i64,
+    daily_units: i64,
     idle_seconds: u64,
 ) -> u64 {
-    if remaining_units <= 0 {
-        300_000
-    } else if now_ms < burst_until_ms {
+    if daily_units - spent_units < 5 {
+        return 300_000;
+    }
+    let wanted = if now_ms < burst_until_ms {
         250
     } else {
         idle_seconds * 1000
-    }
+    };
+    let daily = daily_units.max(1) as f64;
+    let due = ((spent_units + 5) as f64 / daily - PACE_RESERVE).max(0.0);
+    let ahead_ms = ((due - day_fraction(now_ms)) * DAY_MS).clamp(0.0, 300_000.0) as u64;
+    wanted.max(ahead_ms)
+}
+
+/// How far into YouTube's quota day (midnight to midnight, Pacific time) `now_ms` is, from 0 to 1.
+pub fn day_fraction(now_ms: i64) -> f64 {
+    let local = DateTime::<Utc>::from_timestamp_millis(now_ms)
+        .unwrap_or_else(Utc::now)
+        .with_timezone(&chrono_tz::America::Los_Angeles);
+    let since_midnight = local.time().num_seconds_from_midnight() as f64 * 1000.0;
+    (since_midnight / DAY_MS).clamp(0.0, 1.0)
 }
 
 pub fn quota_day(now_ms: i64) -> String {
@@ -737,10 +760,25 @@ mod tests {
     fn reminder_budget_and_california_day_contracts() {
         assert!(CHAT_REMINDER.chars().count() <= 200);
         assert!(CHAT_LIKE.chars().count() <= 200);
+        assert!(CHAT_STAR.chars().count() <= 200);
+        assert!(CHAT_STAR.contains("https://github.com/simnJS/AnyPS5"));
         assert!(CHAT_REMINDER.contains("https://discord.gg/BHFztBPUe"));
-        assert_eq!(next_chat_delay(1000, 5000, 1, 75), 250);
-        assert_eq!(next_chat_delay(6000, 5000, 1, 75), 75_000);
-        assert_eq!(next_chat_delay(1000, 5000, 0, 75), 300_000);
+        // 2026-11-02 20:00 UTC is noon in California: half the quota day has gone.
+        let noon = chrono::DateTime::parse_from_rfc3339("2026-11-02T20:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        assert!((day_fraction(noon) - 0.5).abs() < 1e-6);
+        // Behind the pace, a burst reopens at once and a quiet chat waits the idle delay.
+        assert_eq!(next_chat_delay(noon, noon + 5000, 1000, 4400, 75), 250);
+        assert_eq!(
+            next_chat_delay(noon + 6000, noon + 5000, 1000, 4400, 75),
+            75_000
+        );
+        // Ahead of the pace (half the day gone, 60% + reserve spent), a burst waits for the pace to catch up.
+        let ahead = next_chat_delay(noon, noon + 5000, 3000, 4400, 75);
+        assert!(ahead > 75_000 && ahead <= 300_000, "{ahead}");
+        // A spent budget waits five minutes.
+        assert_eq!(next_chat_delay(noon, noon + 5000, 4400, 4400, 75), 300_000);
         assert_eq!(
             quota_day(
                 chrono::DateTime::parse_from_rfc3339("2026-11-02T07:00:00Z")
