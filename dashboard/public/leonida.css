@@ -5,6 +5,7 @@
   --leo-violet: #8b5cf6;
   --leo-gradient: linear-gradient(100deg, var(--leo-violet), var(--leo-pink) 50%, var(--leo-orange));
 }
+html, body { cursor: none; }
 body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 163, 0.16), transparent 60%), radial-gradient(ellipse 70% 50% at 0% 110%, rgba(139, 92, 246, 0.14), transparent 60%), var(--page); }
 .leo { display: grid; grid-template-rows: 72px 232px 1fr 176px 22px; gap: 14px; width: 1920px; height: 1080px; padding: 16px 28px 12px; }
 
@@ -25,10 +26,11 @@ body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 16
 .leo-value { font-size: 84px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
 .leo-note { font-size: 20px; color: var(--ink-2); }
 .leo-stars { background: linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(255, 79, 163, 0.16) 55%, rgba(255, 154, 60, 0.14)), var(--surface); border-color: rgba(255, 79, 163, 0.35); }
-.leo-star-row { display: flex; align-items: center; gap: 30px; }
+.leo-star-row { display: flex; align-items: center; gap: 28px; min-width: 0; }
+.leo-star-side { min-width: 0; }
 .leo-star-value { font-size: 120px; font-weight: 900; letter-spacing: -0.04em; line-height: 0.95; font-variant-numeric: tabular-nums; }
 .leo-pace { font-size: 34px; font-weight: 900; color: var(--leo-orange); white-space: nowrap; }
-.leo-since { margin-top: 4px; font-size: 20px; color: var(--ink-2); white-space: nowrap; }
+.leo-since { margin-top: 4px; font-size: 20px; line-height: 1.3; color: var(--ink-2); }
 .leo-goal { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; }
 .leo-goal-bar { height: 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .leo-goal-bar > span { display: block; height: 100%; width: 0; background: var(--leo-gradient); transition: width 1.2s ease; }
@@ -39,7 +41,7 @@ body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 16
 
 .leo-main { display: grid; grid-template-columns: 1fr 760px; gap: 16px; min-height: 0; }
 .leo-rows { display: flex; flex-direction: column; gap: 0; margin-top: 2px; }
-.leo-rows li { display: grid; grid-template-columns: 30px 470px 1fr; align-items: baseline; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--grid); font-size: 19px; }
+.leo-rows li { display: grid; grid-template-columns: 30px 545px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--grid); font-size: 19px; }
 .leo-rows li:last-child { border-bottom: 0; }
 .leo-mark { font-size: 19px; text-align: center; }
 .leo-what { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -56,8 +58,12 @@ body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 16
 
 .leo-bottom { display: grid; grid-template-columns: 1fr 760px; gap: 16px; min-height: 0; }
 .leo-chart #chart { display: block; width: 100%; height: 108px; }
-.leo-cta { display: flex; align-items: center; justify-content: center; padding: 20px 28px; border-radius: 14px; background: linear-gradient(120deg, rgba(139, 92, 246, 0.35), rgba(255, 79, 163, 0.3) 55%, rgba(255, 154, 60, 0.28)); border: 2px solid rgba(255, 79, 163, 0.6); font-size: 30px; font-weight: 900; text-align: center; line-height: 1.25; }
-.leo-cta.swap { animation: leo-swap 0.6s ease; }
+.leo-cta { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 26px; padding: 16px 26px 16px 16px; border-radius: 14px; background: linear-gradient(120deg, rgba(139, 92, 246, 0.35), rgba(255, 79, 163, 0.3) 55%, rgba(255, 154, 60, 0.28)); border: 2px solid rgba(255, 79, 163, 0.6); min-width: 0; }
+.leo-qr { width: 140px; height: 140px; border-radius: 10px; background: #fff; image-rendering: pixelated; }
+.leo-cta-body { min-width: 0; }
+.leo-cta-text { font-size: 32px; font-weight: 900; line-height: 1.2; text-wrap: balance; }
+.leo-cta-text.swap { animation: leo-swap 0.6s ease; }
+.leo-cta-url { margin-top: 10px; font-size: 19px; font-weight: 700; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @keyframes leo-swap { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 
 .leo-foot { display: flex; justify-content: space-between; align-items: center; gap: 24px; font-size: 15px; color: var(--muted); white-space: nowrap; }

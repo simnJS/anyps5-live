@@ -17,6 +17,10 @@ static LINK_LAST_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[?&]page=(\d+)>; rel="last""#).unwrap());
 static MD_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[([^\]]+)\]\([^)]*\)").unwrap());
+static PARENS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\([^()]*\)").unwrap());
+// Where a README row's first statement ends: the rows run to whole paragraphs.
+static CLAUSE_END_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\. |\.$|: |; | — | in the |, with ").unwrap());
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)## Project status\s*\n+\*\*([^*]+)\*\*").unwrap());
 
@@ -39,7 +43,11 @@ pub fn parse_status(readme: &str) -> Value {
         .lines()
         .filter(|line| line.starts_with('|') && !line.contains("---"))
         .filter_map(|line| {
-            let cells: Vec<&str> = line.trim_matches('|').splitn(2, '|').map(str::trim).collect();
+            let cells: Vec<&str> = line
+                .trim_matches('|')
+                .splitn(2, '|')
+                .map(str::trim)
+                .collect();
             let (what, status) = (cells.first()?, cells.get(1)?);
             if *what == "What" {
                 return None;
@@ -51,20 +59,26 @@ pub fn parse_status(readme: &str) -> Value {
             } else {
                 "partial"
             };
-            let text = MD_LINK_RE.replace_all(status, "$1").replace("**", "").replace('`', "");
-            let text = text.trim_start_matches(['✅', '❌', '⚠', '\u{fe0f}', '?', ' ']);
-            // The first clause only: the README rows run to whole paragraphs.
-            let short: String = text
-                .split(['.', ';', '('])
-                .next()
-                .unwrap_or("")
-                .chars()
-                .take(90)
-                .collect();
-            Some(json!({"what": MD_LINK_RE.replace_all(what, "$1").replace("**", ""), "mark": mark, "note": short.trim()}))
+            Some(json!({"what": tidy(what), "mark": mark, "note": first_clause(status)}))
         })
         .collect();
     json!({"headline": headline, "rows": rows})
+}
+
+// Links, bold, code marks and asides in parentheses out: what is left reads on a stream.
+fn tidy(text: &str) -> String {
+    let text = MD_LINK_RE
+        .replace_all(text, "$1")
+        .replace("**", "")
+        .replace('`', "");
+    PARENS_RE.replace_all(&text, "").trim().to_owned()
+}
+
+fn first_clause(status: &str) -> String {
+    let text = tidy(status);
+    let text = text.trim_start_matches(['✅', '❌', '⚠', '\u{fe0f}', '?', ' ']);
+    let end = CLAUSE_END_RE.find(text).map_or(text.len(), |m| m.start());
+    text[..end].trim().chars().take(90).collect()
 }
 
 async fn count(app: &AppState, token: Option<&str>, query: &str) -> Option<i64> {
@@ -224,20 +238,23 @@ mod tests {
 
     #[test]
     fn the_readme_status_table_becomes_short_rows() {
-        let readme = "intro\n## Project status\n\n**Early. The game does not boot yet.** More text.\n\n| What | Status |\n|---|---|\n| Booting, story mode, anything playable | ❌ No |\n| Shaders: RDNA2 → SPIR-V translation | ✅ **26,503 / 26,503 translated**: 2,236 VS, more |\n| Xbox D3D12 → Vulkan | ⚠️ In progress. A Vulkan-backed device |\n| [Models](docs/models.md) | ✅ Exported. A scan |\n\n## Platforms\n| x | y |\n";
+        let readme = "intro\n## Project status\n\n**Early. The game does not boot yet.** More text.\n\n| What | Status |\n|---|---|\n| Booting, story mode, anything playable | ❌ No |\n| Shaders: RDNA2 → SPIR-V translation | ✅ **26,503 / 26,503 translated**: 2,236 VS, more |\n| Xbox D3D12 → Vulkan | ⚠️ In progress. A Vulkan-backed device |\n| [Models](docs/models.md) (OBJ with real names) | ✅ Exported. A scan |\n| SPIR-V validation (`spirv-val`) | ✅ **26,503 / 26,503 passed** in the LLVM 23.1.5 Linux rerun |\n| Shader translator checked on a real GPU | ⚠️ The hand-written GPU tests (vertex fetch, texture sampling) have been run on more than 30 GPU and driver combinations, with results in #166: NVIDIA |\n\n## Platforms\n| x | y |\n";
         let status = parse_status(readme);
         assert_eq!(status["headline"], "Early. The game does not boot yet.");
         let rows = status["rows"].as_array().unwrap();
-        assert_eq!(rows.len(), 4);
+        assert_eq!(rows.len(), 6);
         assert_eq!(rows[0]["mark"], "no");
         assert_eq!(rows[1]["mark"], "done");
-        assert_eq!(
-            rows[1]["note"],
-            "26,503 / 26,503 translated: 2,236 VS, more"
-        );
+        assert_eq!(rows[1]["note"], "26,503 / 26,503 translated");
         assert_eq!(rows[2]["mark"], "partial");
         assert_eq!(rows[2]["note"], "In progress");
         assert_eq!(rows[3]["what"], "Models");
+        assert_eq!(rows[4]["what"], "SPIR-V validation");
+        assert_eq!(rows[4]["note"], "26,503 / 26,503 passed");
+        assert_eq!(
+            rows[5]["note"],
+            "The hand-written GPU tests have been run on more than 30 GPU and driver combinations"
+        );
     }
 
     #[test]

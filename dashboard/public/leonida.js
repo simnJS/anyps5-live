@@ -5,7 +5,7 @@
 // ?demo=milestone plays the celebration.
 const REFRESH_MS = 10_000, RELOAD_MS = 6 * 3_600_000, CTA_MS = 12_000, MILESTONE = 1000;
 const CTAS = [
-  "⭐ Star Leonida on GitHub: github.com/ItsNotRexed/Leonida",
+  "⭐ Star Leonida on GitHub",
   "👍 Hit like if you want GTA VI on PC",
   "🔔 Subscribe: the first boot shows up here, live",
   "💬 Which GPU would you run it on? Tell the chat",
@@ -73,7 +73,7 @@ function renderStars(leonida) {
   const pace = leonida.starsLastHour ?? leonida.starsPerHour;
   $("pace").textContent = pace ? `+${fmt(pace)} / hour` : "";
   const today = leonida.starsToday ? ` · +${fmt(leonida.starsToday)} in 24 h` : "";
-  $("since").textContent = leonida.createdAt ? `in ${age(leonida.createdAt)} since it went public${today}` : "";
+  $("since").textContent = leonida.createdAt ? `in ${age(leonida.createdAt)} since launch${today}` : "";
   const next = (Math.floor(leonida.stars / MILESTONE) + 1) * MILESTONE;
   $("goal-bar").style.width = `${(((leonida.stars % MILESTONE) / MILESTONE) * 100).toFixed(1)}%`;
   const minutes = pace ? Math.max(1, Math.round(((next - leonida.stars) / pace) * 60)) : null;
@@ -94,26 +94,32 @@ function renderPrs(list) {
   $("prs").innerHTML = list.slice(0, 6).map((pr) => `<li class="${known && !known.has(pr.number) ? "fresh" : ""}"><img src="${escape(pr.avatar)}&s=88" alt=""><div><div class="leo-pr-title">${escape(pr.title)}</div><div class="leo-pr-meta">#${pr.number} · ${escape(pr.author)} · ${ago(pr.mergedAt)}</div></div></li>`).join("");
 }
 
-// From the day it went public (0 stars, dashed: the shape in between is not known) to the counts kept every
-// 5 minutes since the stream started following it.
+// Once two hours of counts are kept (every 5 minutes), the last 24 hours, zoomed on their range. Before that,
+// from the day it went public (0 stars, dashed: the shape in between is not known) to now.
+const ZOOM_AFTER_MS = 2 * 3_600_000, ZOOM_SPAN_MS = 24 * 3_600_000;
+
 function renderChart(history, createdAt, stars) {
   const svg = $("chart");
-  const points = (history ?? []).map(([at, count]) => ({ at, stars: count }));
+  let points = (history ?? []).map(([at, count]) => ({ at, stars: count }));
   if (stars && points[points.length - 1]?.stars !== stars) points.push({ at: Date.now(), stars });
+  const zoom = points.length > 1 && points[points.length - 1].at - points[0].at >= ZOOM_AFTER_MS;
+  if (zoom) points = points.filter((p) => p.at >= Date.now() - ZOOM_SPAN_MS);
   const start = Date.parse(createdAt ?? "");
-  const origin = Number.isNaN(start) ? null : { at: start, stars: 0 };
+  const origin = zoom || Number.isNaN(start) ? null : { at: start, stars: 0 };
   const width = svg.clientWidth || 1000, height = svg.clientHeight || 108;
   const all = origin ? [origin, ...points] : points;
   const minAt = all[0].at, maxAt = Math.max(all[all.length - 1].at, minAt + 1);
-  const low = 0, high = Math.max(...all.map((p) => p.stars), 1);
+  const counts = all.map((p) => p.stars);
+  const low = zoom ? Math.min(...counts) : 0, high = Math.max(...counts, low + 1);
   const x = (at) => ((at - minAt) / Math.max(1, maxAt - minAt)) * (width - 8) + 4;
   const y = (stars) => height - 6 - ((stars - low) / Math.max(1, high - low)) * (height - 16);
   const path = (list) => list.map((p, index) => `${index ? "L" : "M"}${x(p.at).toFixed(1)},${y(p.stars).toFixed(1)}`).join(" ");
   const known = path(points), first = points[0], last = points[points.length - 1];
   const guess = origin ? `<path d="${path([origin, first])}" fill="none" stroke="#ff4fa3" stroke-opacity="0.7" stroke-width="3" stroke-dasharray="8 8"/>` : "";
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.innerHTML = `<defs><linearGradient id="leo-line" x1="0" x2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="0.5" stop-color="#ff4fa3"/><stop offset="1" stop-color="#ff9a3c"/></linearGradient><linearGradient id="leo-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ff4fa3" stop-opacity="0.35"/><stop offset="1" stop-color="#ff4fa3" stop-opacity="0"/></linearGradient></defs>${origin ? `<path d="${path(all)} L${x(last.at).toFixed(1)},${height} L${x(minAt).toFixed(1)},${height} Z" fill="url(#leo-fill)"/>` : ""}${guess}<path d="${known}" fill="none" stroke="url(#leo-line)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${x(last.at).toFixed(1)}" cy="${y(last.stars).toFixed(1)}" r="7" fill="#ff9a3c"/>`;
-  $("chart-meta").textContent = origin ? `0 → ${fmt(last.stars)} ⭐ in ${age(createdAt)}` : "";
+  $("chart-title").textContent = zoom ? "Stars, the last 24 hours" : "Stars since it went public";
+  svg.innerHTML = `<defs><linearGradient id="leo-line" x1="0" x2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="0.5" stop-color="#ff4fa3"/><stop offset="1" stop-color="#ff9a3c"/></linearGradient><linearGradient id="leo-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ff4fa3" stop-opacity="0.35"/><stop offset="1" stop-color="#ff4fa3" stop-opacity="0"/></linearGradient></defs><path d="${path(all)} L${x(last.at).toFixed(1)},${height} L${x(minAt).toFixed(1)},${height} Z" fill="url(#leo-fill)"/>${guess}<path d="${known}" fill="none" stroke="url(#leo-line)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${x(last.at).toFixed(1)}" cy="${y(last.stars).toFixed(1)}" r="7" fill="#ff9a3c"/>`;
+  $("chart-meta").textContent = origin ? `0 → ${fmt(last.stars)} ⭐ in ${age(createdAt)}` : `+${fmt(last.stars - first.stars)} ⭐ in ${age(new Date(first.at).toISOString())}`;
 }
 
 function render(state) {
