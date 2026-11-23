@@ -62,7 +62,17 @@ pub fn parse_status(readme: &str) -> Value {
             Some(json!({"what": tidy(what), "mark": mark, "note": first_clause(status)}))
         })
         .collect();
-    json!({"headline": headline, "rows": rows})
+    // The row that says whether the game boots: the page, the chat and the big moment follow it.
+    let boot = rows
+        .iter()
+        .find(|row| {
+            row["what"]
+                .as_str()
+                .is_some_and(|w| w.to_lowercase().contains("boot"))
+        })
+        .map(|row| json!({"mark": row["mark"], "note": row["note"]}))
+        .unwrap_or(Value::Null);
+    json!({"headline": headline, "rows": rows, "boot": boot})
 }
 
 // Links, bold, code marks and asides in parentheses out: what is left reads on a stream.
@@ -244,6 +254,7 @@ mod tests {
         let rows = status["rows"].as_array().unwrap();
         assert_eq!(rows.len(), 6);
         assert_eq!(rows[0]["mark"], "no");
+        assert_eq!(status["boot"]["mark"], "no");
         assert_eq!(rows[1]["mark"], "done");
         assert_eq!(rows[1]["note"], "26,503 / 26,503 translated");
         assert_eq!(rows[2]["mark"], "partial");

@@ -1755,7 +1755,17 @@ async fn chat_reminder(app: AppState) {
         }
         persisted["chatReminderAt"] = json!(now);
     }
-    let leonida_stars = app.data.read().await["leonida"]["stars"].as_i64();
+    let (leonida_stars, leonida_about) = {
+        let data = app.data.read().await;
+        let leonida = &data["leonida"];
+        (
+            leonida["stars"].as_i64(),
+            chat::leonida_about(
+                leonida["status"]["boot"]["mark"].as_str(),
+                leonida["status"]["headline"].as_str().unwrap_or(""),
+            ),
+        )
+    };
     // In turn: what AnyPS5 is, a GitHub star, the commands, then a like and subscribe. When the stream shows
     // Leonida (PAGE=leonida.html): what Leonida is, its stars, then a like and subscribe.
     let text = {
@@ -1764,7 +1774,7 @@ async fn chat_reminder(app: AppState) {
         persisted["chatReminderTurn"] = json!(turn + 1);
         if chat::leonida_mode() {
             match turn % 3 {
-                0 => chat::LEONIDA_ABOUT.to_owned(),
+                0 => leonida_about,
                 1 => chat::leonida_star(leonida_stars),
                 _ => chat::LEONIDA_LIKE.to_owned(),
             }

@@ -148,7 +148,24 @@ pub fn about_message(gta6: &str) -> String {
 }
 // The chat messages while the stream shows Leonida.
 pub const LEONIDA_REPO_URL: &str = "https://github.com/ItsNotRexed/Leonida";
-pub const LEONIDA_ABOUT: &str = "🌴 Leonida recompiles GTA VI (Xbox Series) to run natively on PC, built from your own copy. Early: it does not boot yet. Follow it live here. Repo: https://github.com/ItsNotRexed/Leonida";
+/// What Leonida is, and where it stands: "it does not boot yet" while the README's boot row says no, then its
+/// headline, so the chat follows the project by itself.
+pub fn leonida_about(boot_mark: Option<&str>, headline: &str) -> String {
+    let status = match boot_mark {
+        Some("no") | None => "Early: it does not boot yet.".to_owned(),
+        _ => {
+            let headline: String = headline.chars().take(60).collect();
+            if headline.is_empty() {
+                "It boots now!".to_owned()
+            } else {
+                format!("Now: {headline}")
+            }
+        }
+    };
+    format!(
+        "🌴 Leonida recompiles GTA VI (Xbox) to run natively on PC, from your own copy. {status} Repo: {LEONIDA_REPO_URL}"
+    )
+}
 pub const LEONIDA_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe: Leonida's progress on GTA VI for PC, live 24/7, every merged PR and every star.";
 pub fn leonida_mode() -> bool {
     std::env::var("PAGE").is_ok_and(|page| page.starts_with("leonida"))
@@ -776,11 +793,17 @@ mod tests {
         assert!(CHAT_REMINDER.chars().count() <= 200);
         assert!(CHAT_LIKE.chars().count() <= 200);
         assert!(CHAT_STAR.chars().count() <= 200);
-        assert!(
-            LEONIDA_ABOUT.chars().count() <= 200,
-            "{}",
-            LEONIDA_ABOUT.chars().count()
-        );
+        let early = leonida_about(Some("no"), "Early. The game does not boot yet.");
+        assert!(early.contains("does not boot yet"));
+        let boots = leonida_about(Some("partial"), &"Boots to the main menu, ".repeat(10));
+        assert!(boots.contains("Now: Boots to the main menu"));
+        for about in [early, boots, leonida_about(Some("done"), "")] {
+            assert!(
+                about.chars().count() <= 200,
+                "{} chars: {about}",
+                about.chars().count()
+            );
+        }
         assert!(LEONIDA_LIKE.chars().count() <= 200);
         assert!(leonida_star(Some(1_234_567)).chars().count() <= 200);
         assert!(leonida_star(Some(23_378)).contains("23,378 stars"));

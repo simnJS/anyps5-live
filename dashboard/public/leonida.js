@@ -4,12 +4,18 @@
 // 10 seconds, counts the stars up, slides new merges in, and celebrates every thousand stars.
 // ?demo=milestone plays the celebration.
 const REFRESH_MS = 10_000, RELOAD_MS = 6 * 3_600_000, CTA_MS = 12_000, MILESTONE = 1000;
+// The panel under the "Just merged" feed, in turn. Each has its own QR code; HangarAI, which built this live,
+// comes with a code to its site. The subscribe line follows the boot status.
+const LEONIDA_QR = { qr: "leonida-qr.svg", sub: "⭐ Scan to star it · github.com/ItsNotRexed/Leonida" };
+const HANGAR_QR = { qr: "hangar-site-qr.svg", sub: "Free and open source · scan for hangarai.dev", hangar: true };
 const CTAS = [
-  "⭐ Star Leonida on GitHub",
-  "👍 Hit like if you want GTA VI on PC",
-  "🔔 Subscribe: the first boot shows up here, live",
-  "💬 Which GPU would you run it on? Tell the chat",
+  { text: "⭐ Star Leonida on GitHub", ...LEONIDA_QR },
+  { text: "👍 Hit like if you want GTA VI on PC", ...LEONIDA_QR },
+  { text: "🤖 This live was built with HangarAI: a team of coding agents in one window", ...HANGAR_QR },
+  { text: (boots) => (boots ? "🔔 Subscribe: follow it all the way to playable" : "🔔 Subscribe: the first boot shows up here, live"), ...LEONIDA_QR },
+  { text: "💬 Which GPU would you run it on? Tell the chat", ...LEONIDA_QR },
 ];
+let bootMark = null;
 const number = new Intl.NumberFormat("en-US");
 const fmt = (value) => (value === null || value === undefined ? "—" : number.format(value));
 const escape = (text) => String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -68,6 +74,18 @@ function celebrate(stars) {
   }, 12_000);
 }
 
+function celebrateBoot(note) {
+  const colors = ["#8b5cf6", "#ff4fa3", "#ff9a3c", "#ffd166", "#0ca30c"];
+  const confetti = Array.from({ length: 48 }, (_, index) => `<span class="confetti" style="left:${(index * 53) % 100}%;background:${colors[index % colors.length]};animation-duration:${3 + (index % 5) * 0.6}s;animation-delay:-${(index * 0.37).toFixed(2)}s"></span>`).join("");
+  const node = $("takeover");
+  node.className = "takeover leo-takeover show";
+  node.innerHTML = `${confetti}<div class="takeover-text"><div class="takeover-kicker">It just happened</div><div class="takeover-value leo-boot">GTA VI<br>BOOTS ON PC</div><div class="takeover-note">${escape(note || "Leonida's README now says it boots")}</div></div>`;
+  setTimeout(() => {
+    node.className = "takeover";
+    node.innerHTML = "";
+  }, 30_000);
+}
+
 function renderStars(leonida) {
   countStars(leonida.stars);
   const pace = leonida.starsLastHour ?? leonida.starsPerHour;
@@ -81,11 +99,19 @@ function renderStars(leonida) {
   $("goal-text").textContent = `Next: ${fmt(next)} ⭐${eta}`;
 }
 
+// The header follows the README's boot row: red while the game does not boot, amber, then green. The moment
+// it stops saying no, the whole screen says so.
 function renderStatus(status) {
   if (!status) return;
-  $("headline").textContent = `❌ ${status.headline || "The game does not boot yet"}`;
-  const icon = { done: "✅", partial: "🟡", no: "❌" };
-  $("rows").innerHTML = status.rows.map((row) => `<li class="${escape(row.mark)}"><span class="leo-mark">${icon[row.mark] ?? "🟡"}</span><span class="leo-what">${escape(row.what)}</span><span class="leo-row-note">${escape(row.note)}</span></li>`).join("");
+  const mark = status.boot?.mark ?? "no";
+  const icon = { done: "✅", partial: "🟡", no: "❌" }[mark] ?? "🟡";
+  const fallback = mark === "no" ? "The game does not boot yet" : `Booting: ${status.boot?.note ?? "it boots"}`;
+  $("headline").textContent = `${icon} ${status.headline || fallback}`;
+  $("headline").className = `leo-headline ${mark}`;
+  if (bootMark === "no" && mark !== "no") celebrateBoot(status.boot?.note || status.headline);
+  bootMark = mark;
+  const rowIcon = { done: "✅", partial: "🟡", no: "❌" };
+  $("rows").innerHTML = status.rows.map((row) => `<li class="${escape(row.mark)}"><span class="leo-mark">${rowIcon[row.mark] ?? "🟡"}</span><span class="leo-what">${escape(row.what)}</span><span class="leo-row-note">${escape(row.note)}</span></li>`).join("");
 }
 
 function renderPrs(list) {
@@ -139,11 +165,15 @@ function render(state) {
 }
 
 function tickCta() {
-  const node = $("cta");
-  node.textContent = CTAS[Math.floor(Date.now() / CTA_MS) % CTAS.length];
-  node.classList.remove("swap");
-  void node.offsetWidth;
-  node.classList.add("swap");
+  const cta = CTAS[Math.floor(Date.now() / CTA_MS) % CTAS.length];
+  const box = $("cta-box");
+  $("cta").textContent = typeof cta.text === "function" ? cta.text(bootMark && bootMark !== "no") : cta.text;
+  $("cta-sub").textContent = cta.sub;
+  if ($("cta-qr").getAttribute("src") !== cta.qr) $("cta-qr").src = cta.qr;
+  box.classList.toggle("hangar", Boolean(cta.hangar));
+  box.classList.remove("swap");
+  void box.offsetWidth;
+  box.classList.add("swap");
 }
 
 async function refresh() {
@@ -164,6 +194,15 @@ tickClock();
 setInterval(tickClock, 5000);
 tickCta();
 setInterval(tickCta, CTA_MS);
-refresh().then(() => params.get("demo") === "milestone" && celebrate(Math.floor((latest?.stars ?? 23000) / MILESTONE) * MILESTONE));
+refresh().then(() => {
+  if (params.get("demo") === "milestone") celebrate(Math.floor((latest?.stars ?? 23000) / MILESTONE) * MILESTONE);
+  if (params.get("demo") === "boot") celebrateBoot("Boots to the title screen");
+  if (params.get("cta")) {
+    // ?cta=<n> pins one panel, to look at it.
+    const pinned = CTAS[Number(params.get("cta")) % CTAS.length];
+    CTAS.splice(0, CTAS.length, pinned);
+    tickCta();
+  }
+});
 setInterval(refresh, REFRESH_MS);
 setTimeout(() => location.reload(), RELOAD_MS);
