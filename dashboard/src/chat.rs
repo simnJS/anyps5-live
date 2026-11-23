@@ -147,7 +147,7 @@ pub fn about_message(gta6: &str) -> String {
     )
 }
 // The chat messages while the stream shows Leonida.
-pub const LEONIDA_REPO_URL: &str = "https://github.com/ItsNotRexed/Leonida";
+pub const LEONIDA_REPO_URL: &str = "https://github.com/ProjectLeonida/Leonida";
 /// What Leonida is, and where it stands: "it does not boot yet" while the README's boot row says no, then its
 /// headline, so the chat follows the project by itself.
 pub fn leonida_about(boot_mark: Option<&str>, headline: &str) -> String {

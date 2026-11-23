@@ -6,7 +6,7 @@
 const REFRESH_MS = 10_000, RELOAD_MS = 6 * 3_600_000, CTA_MS = 12_000, MILESTONE = 1000;
 // The panel under the "Just merged" feed, in turn. Each has its own QR code; HangarAI, which built this live,
 // comes with a code to its site. The subscribe line follows the boot status.
-const LEONIDA_QR = { qr: "leonida-qr.svg", sub: "⭐ Scan to star it · github.com/ItsNotRexed/Leonida" };
+const LEONIDA_QR = { qr: "leonida-qr.svg", sub: "⭐ Scan to star it · github.com/ProjectLeonida/Leonida" };
 const HANGAR_QR = { qr: "hangar-site-qr.svg", sub: "Coding agents in one window, free · hangarai.dev", hangar: true };
 const CTAS = [
   { text: "⭐ Star Leonida on GitHub", ...LEONIDA_QR },
@@ -24,7 +24,7 @@ const WARNINGS = (boots) => [
   { text: boots ? "It is not playable yet: every video of a finished GTA VI PC port is fake" : "The game does not boot yet: every video of GTA VI running on PC is fake", danger: true },
   { text: "Leonida is free and open source: it builds the game on your PC from your own copy, there is nothing to buy" },
   { text: "Never run files sent in comments, DMs, Discord or Telegram", danger: true },
-  { text: "The only real source: github.com/ItsNotRexed/Leonida" },
+  { text: "The only real source: github.com/ProjectLeonida/Leonida" },
   { text: "Unofficial fan tracker, not affiliated with Rockstar Games, Take-Two, Microsoft or the Leonida maintainers" },
   { text: "This live was built with HangarAI · hangarai.dev" },
 ];
@@ -99,16 +99,31 @@ function celebrate(stars) {
   }, 12_000);
 }
 
+// The boot moment: when the status stops saying "no", again after a restart (the server keeps when it
+// happened), then every 30 minutes for 12 hours so viewers arriving later see it too.
+const BOOT_REPLAY_MS = 30 * 60_000, BOOT_HYPE_MS = 12 * 3_600_000;
+let bootShownAt = 0;
+
+function maybeCelebrateBoot(status) {
+  if (!status.boot || status.boot.mark === "no") return;
+  const since = Date.parse(latest?.bootSince ?? "");
+  const fresh = Number.isNaN(since) || Date.now() - since < BOOT_HYPE_MS;
+  if (fresh && Date.now() - bootShownAt >= BOOT_REPLAY_MS) {
+    bootShownAt = Date.now();
+    celebrateBoot(status.boot.note || status.headline);
+  }
+}
+
 function celebrateBoot(note) {
   const colors = ["#8b5cf6", "#ff4fa3", "#ff9a3c", "#ffd166", "#0ca30c"];
   const confetti = Array.from({ length: 48 }, (_, index) => `<span class="confetti" style="left:${(index * 53) % 100}%;background:${colors[index % colors.length]};animation-duration:${3 + (index % 5) * 0.6}s;animation-delay:-${(index * 0.37).toFixed(2)}s"></span>`).join("");
   const node = $("takeover");
   node.className = "takeover leo-takeover show";
-  node.innerHTML = `${confetti}<div class="takeover-text"><div class="takeover-kicker">It just happened</div><div class="takeover-value leo-boot">GTA VI<br>BOOTS ON PC</div><div class="takeover-note">${escape(note || "Leonida's README now says it boots")}</div></div>`;
+  node.innerHTML = `${confetti}<div class="takeover-text"><div class="takeover-kicker">It happened</div><div class="takeover-value leo-boot">GTA VI<br>BOOTS ON PC</div><div class="takeover-note">${escape(note || "Leonida's README now says it boots")}</div></div>`;
   setTimeout(() => {
     node.className = "takeover";
     node.innerHTML = "";
-  }, 30_000);
+  }, 20_000);
 }
 
 function renderStars(leonida) {
@@ -133,8 +148,8 @@ function renderStatus(status) {
   const fallback = mark === "no" ? "The game does not boot yet" : `Booting: ${status.boot?.note ?? "it boots"}`;
   $("headline").textContent = `${icon} ${status.headline || fallback}`;
   $("headline").className = `leo-headline ${mark}`;
-  if (bootMark === "no" && mark !== "no") celebrateBoot(status.boot?.note || status.headline);
   bootMark = mark;
+  maybeCelebrateBoot(status);
   renderTicker();
   const rowIcon = { done: "✅", partial: "🟡", no: "❌" };
   $("rows").innerHTML = status.rows.map((row) => `<li class="${escape(row.mark)}"><span class="leo-mark">${rowIcon[row.mark] ?? "🟡"}</span><span class="leo-what">${escape(row.what)}</span><span class="leo-row-note">${escape(row.note)}</span></li>`).join("");

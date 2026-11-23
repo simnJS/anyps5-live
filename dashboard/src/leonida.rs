@@ -21,11 +21,14 @@ static PARENS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\([^()]*\)"
 // Where a README row's first statement ends: the rows run to whole paragraphs.
 static CLAUSE_END_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\. |\.$|: |; | — | in the |, with ").unwrap());
+// A merge commit names its pull request: "Merge pull request #N" (GitHub) or "origin/pr/N" (merged locally).
+static MERGED_PR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:pull request #|origin/pr/)(\d+)").unwrap());
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)## Project status\s*\n+\*\*([^*]+)\*\*").unwrap());
 
 pub fn repo() -> String {
-    env::var("LEONIDA_REPO").unwrap_or_else(|_| "ItsNotRexed/Leonida".into())
+    env::var("LEONIDA_REPO").unwrap_or_else(|_| "ProjectLeonida/Leonida".into())
 }
 
 /// The README's "Project status": its bold headline and one short line per table row.
@@ -91,12 +94,122 @@ fn first_clause(status: &str) -> String {
     text[..end].trim().chars().take(90).collect()
 }
 
+/// While the README still says the game does not boot, public/leonida-boot.json can say where the boot stands
+/// (from the project's own boot docs): it replaces the boot row, its note and the headline. Once the README's
+/// boot row changes, the README wins.
+pub fn apply_boot_override(status: &Value, overlay: &Value) -> Value {
+    let mut status = status.clone();
+    let Some(mark) = overlay["mark"].as_str() else {
+        return status;
+    };
+    if status["boot"]["mark"].as_str().unwrap_or("no") != "no" {
+        return status;
+    }
+    let note = overlay["note"].clone();
+    if let Some(rows) = status["rows"].as_array_mut() {
+        for row in rows.iter_mut() {
+            if row["what"]
+                .as_str()
+                .is_some_and(|w| w.to_lowercase().contains("boot"))
+            {
+                row["mark"] = json!(mark);
+                row["note"] = note.clone();
+            }
+        }
+    }
+    status["boot"] = json!({"mark": mark, "note": note});
+    if let Some(headline) = overlay["headline"].as_str() {
+        status["headline"] = json!(headline);
+    }
+    status
+}
+
+async fn boot_override() -> Value {
+    let public = env::var("PUBLIC_DIR").unwrap_or_else(|_| "./public".into());
+    tokio::fs::read_to_string(std::path::PathBuf::from(public).join("leonida-boot.json"))
+        .await
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(Value::Null)
+}
+
 async fn count(app: &AppState, token: Option<&str>, query: &str) -> Option<i64> {
     let url = format!(
         "https://api.github.com/search/issues?per_page=1&q={}",
         crate::encode(&format!("repo:{} {query}", repo()))
     );
     fetch_json(&app.client, &url, token).await.ok()?["total_count"].as_i64()
+}
+
+// Pull requests merged locally ("Merge remote-tracking branch 'origin/pr/N'") and closed: GitHub does not count
+// them as merged, so their merge commits are counted instead.
+async fn count_local_merges(
+    app: &AppState,
+    token: Option<&str>,
+    since: Option<&str>,
+) -> Option<i64> {
+    let date = since
+        .map(|d| format!(" committer-date:>={d}"))
+        .unwrap_or_default();
+    let url = format!(
+        "https://api.github.com/search/commits?per_page=1&q={}",
+        crate::encode(&format!("repo:{} merge:true \"origin/pr\"{date}", repo()))
+    );
+    fetch_json(&app.client, &url, token).await.ok()?["total_count"].as_i64()
+}
+
+/// The pull requests that landed last, newest first, from the merge commits on the default branch: whether
+/// GitHub merged them or they were merged locally and closed. Titles and authors come from the recently closed
+/// pull requests, or from the pull request itself.
+async fn latest_landed(app: &AppState, token: Option<&str>, closed: &[Value]) -> Vec<Value> {
+    let commits_url = format!(
+        "https://api.github.com/repos/{}/commits?per_page=40",
+        repo()
+    );
+    let commits = fetch_json(&app.client, &commits_url, token)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let mut landed: Vec<(i64, String)> = Vec::new();
+    for commit in &commits {
+        let message = commit["commit"]["message"].as_str().unwrap_or("");
+        let Some(number) = MERGED_PR_RE
+            .captures(message.lines().next().unwrap_or(""))
+            .and_then(|c| c[1].parse::<i64>().ok())
+        else {
+            continue;
+        };
+        if landed.iter().all(|(n, _)| *n != number) {
+            let at = commit["commit"]["committer"]["date"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned();
+            landed.push((number, at));
+        }
+        if landed.len() == 8 {
+            break;
+        }
+    }
+    let mut latest = Vec::new();
+    for (number, at) in landed {
+        let known = closed
+            .iter()
+            .find(|p| p["number"].as_i64() == Some(number))
+            .cloned();
+        let pull = match known {
+            Some(pull) => pull,
+            None => {
+                let url = format!("https://api.github.com/repos/{}/pulls/{number}", repo());
+                match fetch_json(&app.client, &url, token).await {
+                    Ok(pull) => pull,
+                    Err(_) => continue,
+                }
+            }
+        };
+        latest.push(json!({"number": number, "title": pull["title"], "author": pull["user"]["login"], "avatar": pull["user"]["avatar_url"], "mergedAt": at}));
+    }
+    latest
 }
 
 async fn contributors(app: &AppState, token: Option<&str>) -> Option<i64> {
@@ -161,6 +274,14 @@ fn gain_since(history: &[Value], now: i64, ago_ms: i64, stars: i64) -> Option<i6
     Some(stars - past[1].as_i64()?)
 }
 
+// The last known feed, kept when a refresh brings none.
+async fn state_latest(app: &AppState) -> Vec<Value> {
+    app.data.read().await["leonida"]["latestMerged"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
 pub async fn collect_loop(app: AppState) {
     let token = env::var("GITHUB_TOKEN").ok().filter(|s| !s.is_empty());
     let token = token.as_deref();
@@ -174,13 +295,22 @@ pub async fn collect_loop(app: AppState) {
         );
         let today = Utc::now().format("%Y-%m-%d").to_string();
         let merged_today_query = format!("is:pr is:merged merged:>={today}");
-        let (meta, pulls, merged, merged_today, open) = tokio::join!(
+        let (meta, pulls, merged, merged_today, open, local, local_today) = tokio::join!(
             fetch_json(&app.client, &repo_url, token),
             fetch_json(&app.client, &pulls_url, token),
             count(&app, token, "is:pr is:merged"),
             count(&app, token, &merged_today_query),
             count(&app, token, "is:pr is:open"),
+            count_local_merges(&app, token, None),
+            count_local_merges(&app, token, Some(&today)),
         );
+        let merged = merged.map(|n| n + local.unwrap_or(0));
+        let merged_today = merged_today.map(|n| n + local_today.unwrap_or(0));
+        let closed = pulls
+            .ok()
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+        let latest = latest_landed(&app, token, &closed).await;
         if turn % SLOW_EVERY == 0 {
             let (people, text) = tokio::join!(contributors(&app, token), readme(&app, token));
             if let Some(people) = people {
@@ -201,16 +331,23 @@ pub async fn collect_loop(app: AppState) {
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                     .map(|d| d.timestamp_millis());
                 let hours = created.map(|c| ((now - c) as f64 / 3_600_000.0).max(1.0));
-                let mut latest: Vec<Value> = pulls
-                    .ok()
-                    .and_then(|v| v.as_array().cloned())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|p| p["merged_at"].is_string())
-                    .map(|p| json!({"number":p["number"],"title":p["title"],"author":p["user"]["login"],"avatar":p["user"]["avatar_url"],"mergedAt":p["merged_at"]}))
-                    .collect();
-                latest.sort_by(|a, b| b["mergedAt"].as_str().cmp(&a["mergedAt"].as_str()));
-                latest.truncate(10);
+                let latest = if latest.is_empty() {
+                    state_latest(&app).await
+                } else {
+                    latest
+                };
+                let status = apply_boot_override(&slow["status"], &boot_override().await);
+                // When the game first stops "not booting", kept so the page can celebrate it after a restart too.
+                let boot_since = {
+                    let mut persisted = app.persisted.write().await;
+                    let booting = status["boot"]["mark"].as_str().is_some_and(|m| m != "no");
+                    if booting && persisted["leonidaBootSince"].is_null() {
+                        persisted["leonidaBootSince"] = json!(Utc::now().to_rfc3339());
+                    } else if !booting && !status.is_null() {
+                        persisted["leonidaBootSince"] = Value::Null;
+                    }
+                    persisted["leonidaBootSince"].clone()
+                };
                 let mut state = app.data.write().await;
                 let previous = state["leonida"].clone();
                 let keep = |key: &str, fresh: Option<i64>| {
@@ -231,7 +368,8 @@ pub async fn collect_loop(app: AppState) {
                     "mergedToday": keep("mergedToday", merged_today),
                     "openPrs": keep("openPrs", open),
                     "contributors": slow["contributors"],
-                    "status": slow["status"],
+                    "status": status,
+                    "bootSince": boot_since,
                     "latestMerged": latest,
                 });
                 state["sources"]["leonida"] = json!({"ok":true,"at":Utc::now().to_rfc3339()});
@@ -266,6 +404,42 @@ mod tests {
             rows[5]["note"],
             "The hand-written GPU tests have been run on more than 30 GPU and driver combinations"
         );
+    }
+
+    #[test]
+    fn the_boot_override_waits_for_a_readme_that_says_no() {
+        let readme = parse_status(
+            "## Project status\n\n**Early. The game does not boot yet.**\n\n| What | Status |\n|---|---|\n| Booting, story mode, anything playable | ❌ No |\n| Models | ✅ Exported |\n",
+        );
+        let overlay = json!({"mark":"partial","headline":"It boots!","note":"The .exe runs"});
+        let status = apply_boot_override(&readme, &overlay);
+        assert_eq!(status["boot"]["mark"], "partial");
+        assert_eq!(status["headline"], "It boots!");
+        assert_eq!(status["rows"][0]["mark"], "partial");
+        assert_eq!(status["rows"][0]["note"], "The .exe runs");
+        assert_eq!(status["rows"][1]["mark"], "done");
+        // The README moved on: it wins.
+        let mut moved = readme.clone();
+        moved["boot"]["mark"] = json!("done");
+        assert_eq!(
+            apply_boot_override(&moved, &overlay)["boot"]["mark"],
+            "done"
+        );
+        assert_eq!(apply_boot_override(&readme, &Value::Null), readme);
+    }
+
+    #[test]
+    fn merge_commits_name_their_pull_request() {
+        let number = |message: &str| MERGED_PR_RE.captures(message).map(|c| c[1].to_owned());
+        assert_eq!(
+            number("Merge remote-tracking branch 'origin/pr/9523'").as_deref(),
+            Some("9523")
+        );
+        assert_eq!(
+            number("Merge pull request #6693 from cynbun/awc").as_deref(),
+            Some("6693")
+        );
+        assert_eq!(number("docs: fix a typo"), None);
     }
 
     #[test]

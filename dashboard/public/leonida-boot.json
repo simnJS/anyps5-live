@@ -1,0 +1,6 @@
+{
+  "about": "Where the boot stands while the README has not caught up. Used only while the README's boot row still says no; once it changes, the README wins. Re-read every minute, so a copy into the running container shows within a minute. Source: docs/retail_boot_chain.md, measured 2026-11-23.",
+  "mark": "partial",
+  "headline": "It boots! The retail .exe now runs on PC, no picture yet",
+  "note": "The .exe runs: 13 boot stops cleared, up to the GPU setup"
+}

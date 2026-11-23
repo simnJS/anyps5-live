@@ -1929,7 +1929,7 @@ async fn main() -> Result<()> {
     if let Some(parent) = data_file.parent() {
         fs::create_dir_all(parent).await?;
     }
-    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0,"leonidaStars":[]});
+    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0,"leonidaStars":[],"leonidaBootSince":null});
     if let Ok(bytes) = fs::read(&data_file).await {
         if let Ok(saved) = serde_json::from_slice::<Value>(&bytes) {
             for key in [
@@ -1942,6 +1942,7 @@ async fn main() -> Result<()> {
                 "chatReminderAt",
                 "chatReminderTurn",
                 "leonidaStars",
+                "leonidaBootSince",
             ] {
                 if let Some(v) = saved.get(key) {
                     persisted[key] = v.clone();
