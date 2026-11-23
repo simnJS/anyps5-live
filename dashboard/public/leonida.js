@@ -7,15 +7,40 @@ const REFRESH_MS = 10_000, RELOAD_MS = 6 * 3_600_000, CTA_MS = 12_000, MILESTONE
 // The panel under the "Just merged" feed, in turn. Each has its own QR code; HangarAI, which built this live,
 // comes with a code to its site. The subscribe line follows the boot status.
 const LEONIDA_QR = { qr: "leonida-qr.svg", sub: "⭐ Scan to star it · github.com/ItsNotRexed/Leonida" };
-const HANGAR_QR = { qr: "hangar-site-qr.svg", sub: "Free and open source · scan for hangarai.dev", hangar: true };
+const HANGAR_QR = { qr: "hangar-site-qr.svg", sub: "Coding agents in one window, free · hangarai.dev", hangar: true };
 const CTAS = [
   { text: "⭐ Star Leonida on GitHub", ...LEONIDA_QR },
   { text: "👍 Hit like if you want GTA VI on PC", ...LEONIDA_QR },
-  { text: "🤖 This live was built with HangarAI: a team of coding agents in one window", ...HANGAR_QR },
+  { text: "🤖 This live was built with HangarAI", ...HANGAR_QR },
   { text: (boots) => (boots ? "🔔 Subscribe: follow it all the way to playable" : "🔔 Subscribe: the first boot shows up here, live"), ...LEONIDA_QR },
   { text: "💬 Which GPU would you run it on? Tell the chat", ...LEONIDA_QR },
 ];
 let bootMark = null;
+
+// The warning band. "danger" lines are the scams; the boot line follows the README's boot row.
+const TICKER_PX_PER_SECOND = 70;
+const WARNINGS = (boots) => [
+  { text: "Never pay for a GTA VI PC .exe: it is a scam", danger: true },
+  { text: boots ? "It is not playable yet: every video of a finished GTA VI PC port is fake" : "The game does not boot yet: every video of GTA VI running on PC is fake", danger: true },
+  { text: "Leonida is free and open source: it builds the game on your PC from your own copy, there is nothing to buy" },
+  { text: "Never run files sent in comments, DMs, Discord or Telegram", danger: true },
+  { text: "The only real source: github.com/ItsNotRexed/Leonida" },
+  { text: "Unofficial fan tracker, not affiliated with Rockstar Games, Take-Two, Microsoft or the Leonida maintainers" },
+  { text: "This live was built with HangarAI · hangarai.dev" },
+];
+let tickerKey = "";
+
+function renderTicker() {
+  const boots = Boolean(bootMark && bootMark !== "no");
+  const key = String(boots);
+  if (key === tickerKey) return;
+  tickerKey = key;
+  const once = WARNINGS(boots).map((line) => `<span class="${line.danger ? "danger" : ""}">${escape(line.text)}</span><i>•</i>`).join("");
+  const strip = $("ticker");
+  // Twice in a row: the strip slides by half its width and starts over where it looks the same.
+  strip.innerHTML = once + once;
+  strip.style.animationDuration = `${(strip.scrollWidth / 2 / TICKER_PX_PER_SECOND).toFixed(1)}s`;
+}
 const number = new Intl.NumberFormat("en-US");
 const fmt = (value) => (value === null || value === undefined ? "—" : number.format(value));
 const escape = (text) => String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -110,6 +135,7 @@ function renderStatus(status) {
   $("headline").className = `leo-headline ${mark}`;
   if (bootMark === "no" && mark !== "no") celebrateBoot(status.boot?.note || status.headline);
   bootMark = mark;
+  renderTicker();
   const rowIcon = { done: "✅", partial: "🟡", no: "❌" };
   $("rows").innerHTML = status.rows.map((row) => `<li class="${escape(row.mark)}"><span class="leo-mark">${rowIcon[row.mark] ?? "🟡"}</span><span class="leo-what">${escape(row.what)}</span><span class="leo-row-note">${escape(row.note)}</span></li>`).join("");
 }
@@ -192,6 +218,7 @@ async function refresh() {
 
 tickClock();
 setInterval(tickClock, 5000);
+renderTicker();
 tickCta();
 setInterval(tickCta, CTA_MS);
 refresh().then(() => {

@@ -7,7 +7,7 @@
 }
 html, body { cursor: none; }
 body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 163, 0.16), transparent 60%), radial-gradient(ellipse 70% 50% at 0% 110%, rgba(139, 92, 246, 0.14), transparent 60%), var(--page); }
-.leo { display: grid; grid-template-rows: 72px 232px 1fr 176px 22px; gap: 14px; width: 1920px; height: 1080px; padding: 16px 28px 12px; }
+.leo { display: grid; grid-template-rows: 72px 232px 1fr 160px 50px; gap: 14px; width: 1920px; height: 1080px; padding: 16px 28px 12px; }
 
 .leo-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 28px; }
 .leo-brand { display: flex; align-items: center; gap: 16px; }
@@ -59,9 +59,10 @@ body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 16
 .leo-pr-meta { margin-top: 2px; font-size: 17px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .leo-bottom { display: grid; grid-template-columns: 1fr 760px; gap: 16px; min-height: 0; }
-.leo-chart #chart { display: block; width: 100%; height: 108px; }
+.leo-bottom > * { min-height: 0; overflow: hidden; }
+.leo-chart #chart { display: block; width: 100%; height: 78px; }
 .leo-cta { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 26px; padding: 16px 26px 16px 16px; border-radius: 14px; background: linear-gradient(120deg, rgba(139, 92, 246, 0.35), rgba(255, 79, 163, 0.3) 55%, rgba(255, 154, 60, 0.28)); border: 2px solid rgba(255, 79, 163, 0.6); min-width: 0; }
-.leo-qr { width: 140px; height: 140px; border-radius: 10px; background: #fff; image-rendering: pixelated; }
+.leo-qr { width: 126px; height: 126px; border-radius: 10px; background: #fff; image-rendering: pixelated; }
 .leo-cta-body { min-width: 0; }
 .leo-cta-text { font-size: 32px; font-weight: 900; line-height: 1.2; text-wrap: balance; }
 .leo-cta.swap { animation: leo-swap 0.6s ease; }
@@ -70,10 +71,16 @@ body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 16
 .leo-cta-url { margin-top: 10px; font-size: 19px; font-weight: 700; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @keyframes leo-swap { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 
-.leo-foot { display: flex; justify-content: space-between; align-items: center; gap: 24px; font-size: 15px; color: var(--muted); white-space: nowrap; }
-.leo-credit { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
-.leo-credit img { width: 18px; height: 18px; border-radius: 4px; }
-.leo-credit strong { color: var(--ink); }
+/* The warning band: scams and fake videos, scrolling slowly so it stays readable at the stream's frame rate. */
+.leo-ticker { display: grid; grid-template-columns: auto 1fr; align-items: stretch; border-radius: 12px; overflow: hidden; background: #2a1406; box-shadow: inset 0 0 0 2px #e8a33d; }
+.leo-ticker-label { display: flex; align-items: center; padding: 0 20px; background: #e8a33d; color: #1a0d02; font-size: 22px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.leo-ticker-track { position: relative; overflow: hidden; min-width: 0; }
+.leo-ticker-strip { position: absolute; top: 0; bottom: 0; left: 0; display: flex; align-items: center; white-space: nowrap; will-change: transform; animation: leo-ticker linear infinite; }
+.leo-ticker-strip span { padding: 0 28px; font-size: 23px; font-weight: 800; color: #ffe2b8; }
+.leo-ticker-strip span.danger { color: #fff; }
+.leo-ticker-strip span.danger::before { content: "⛔ "; }
+.leo-ticker-strip i { color: #e8a33d; font-style: normal; font-weight: 900; }
+@keyframes leo-ticker { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
 
 /* A thousand more stars: a full-screen moment, in the project's colours. */
 .takeover.leo-takeover { background: radial-gradient(ellipse at center, rgba(255, 79, 163, 0.32), transparent 70%), #0d0d0d; }
