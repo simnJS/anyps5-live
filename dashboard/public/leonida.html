@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>Leonida: GTA VI on PC, live</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="leonida.css">
+</head>
+<body>
+  <main class="leo">
+    <header class="leo-top">
+      <div class="leo-brand">
+        <img src="leonida-logo.png" alt="">
+        <div>
+          <h1>Leonida</h1>
+          <div class="leo-sub">GTA VI (Xbox Series) recompiled to run natively on PC</div>
+        </div>
+      </div>
+      <div class="leo-headline" id="headline">Early: the game does not boot yet</div>
+      <div class="leo-right">
+        <div class="leo-live"><span class="dot"></span>LIVE</div>
+        <div class="clock"><span id="clock">--:--</span><span class="clock-zone">UTC</span></div>
+      </div>
+    </header>
+
+    <section class="leo-kpis">
+      <article class="leo-tile leo-stars">
+        <div class="leo-label">⭐ GitHub stars</div>
+        <div class="leo-star-row">
+          <div class="leo-star-value" id="stars">—</div>
+          <div class="leo-star-side">
+            <div class="leo-pace" id="pace">&nbsp;</div>
+            <div class="leo-since" id="since">&nbsp;</div>
+          </div>
+        </div>
+        <div class="leo-goal"><div class="leo-goal-bar"><span id="goal-bar"></span></div><div class="leo-goal-text" id="goal-text">&nbsp;</div></div>
+        <div class="leo-bump" id="bump"></div>
+      </article>
+      <article class="leo-tile"><div class="leo-label">PRs merged today</div><div class="leo-value" id="merged-today">—</div><div class="leo-note" id="merged-total">&nbsp;</div></article>
+      <article class="leo-tile"><div class="leo-label">Contributors</div><div class="leo-value" id="contributors">—</div><div class="leo-note">people who landed code</div></article>
+      <article class="leo-tile"><div class="leo-label">Open PRs</div><div class="leo-value" id="open-prs">—</div><div class="leo-note" id="forks">&nbsp;</div></article>
+    </section>
+
+    <section class="leo-main">
+      <article class="panel leo-status">
+        <header class="panel-head"><h2>Where the port stands</h2><span class="panel-meta">from the project's README</span></header>
+        <ol class="leo-rows" id="rows"></ol>
+      </article>
+      <article class="panel leo-feed">
+        <header class="panel-head"><h2>Just merged</h2><span class="panel-meta" id="feed-meta"></span></header>
+        <ol class="leo-prs" id="prs"></ol>
+      </article>
+    </section>
+
+    <section class="leo-bottom">
+      <article class="panel leo-chart">
+        <header class="panel-head"><h2>Stars since it went public</h2><span class="panel-meta" id="chart-meta"></span></header>
+        <svg id="chart" preserveAspectRatio="none"></svg>
+      </article>
+      <div class="leo-cta" id="cta"></div>
+    </section>
+
+    <footer class="leo-foot">
+      <span>Unofficial fan tracker. Not affiliated with Rockstar Games, Take-Two, Microsoft or the Leonida maintainers. No game or download is provided.</span>
+      <span class="leo-credit">This live was built with <img src="hangar-logo.svg" alt=""><strong>HangarAI</strong> · hangarai.dev</span>
+    </footer>
+  </main>
+  <div class="takeover" id="takeover"></div>
+  <script src="leonida.js"></script>
+</body>
+</html>

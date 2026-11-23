@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 mod automod;
 mod chat;
 mod gta6;
+mod leonida;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Serialize, Serializer, ser::SerializeMap};
@@ -1754,16 +1755,26 @@ async fn chat_reminder(app: AppState) {
         }
         persisted["chatReminderAt"] = json!(now);
     }
-    // In turn: what AnyPS5 is, a GitHub star, the commands, then a like and subscribe.
+    let leonida_stars = app.data.read().await["leonida"]["stars"].as_i64();
+    // In turn: what AnyPS5 is, a GitHub star, the commands, then a like and subscribe. When the stream shows
+    // Leonida (PAGE=leonida.html): what Leonida is, its stars, then a like and subscribe.
     let text = {
         let mut persisted = app.persisted.write().await;
         let turn = persisted["chatReminderTurn"].as_i64().unwrap_or(0);
         persisted["chatReminderTurn"] = json!(turn + 1);
-        match turn % 4 {
-            0 => chat::about_message(&gta6::chat_line()),
-            1 => chat::CHAT_STAR.to_owned(),
-            2 => chat::CHAT_REMINDER.to_owned(),
-            _ => chat::CHAT_LIKE.to_owned(),
+        if chat::leonida_mode() {
+            match turn % 3 {
+                0 => chat::LEONIDA_ABOUT.to_owned(),
+                1 => chat::leonida_star(leonida_stars),
+                _ => chat::LEONIDA_LIKE.to_owned(),
+            }
+        } else {
+            match turn % 4 {
+                0 => chat::about_message(&gta6::chat_line()),
+                1 => chat::CHAT_STAR.to_owned(),
+                2 => chat::CHAT_REMINDER.to_owned(),
+                _ => chat::CHAT_LIKE.to_owned(),
+            }
         }
     };
     save_persisted(&app).await;
@@ -1908,7 +1919,7 @@ async fn main() -> Result<()> {
     if let Some(parent) = data_file.parent() {
         fs::create_dir_all(parent).await?;
     }
-    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0});
+    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0,"leonidaStars":[]});
     if let Ok(bytes) = fs::read(&data_file).await {
         if let Ok(saved) = serde_json::from_slice::<Value>(&bytes) {
             for key in [
@@ -1920,6 +1931,7 @@ async fn main() -> Result<()> {
                 "chatUnits",
                 "chatReminderAt",
                 "chatReminderTurn",
+                "leonidaStars",
             ] {
                 if let Some(v) = saved.get(key) {
                     persisted[key] = v.clone();
@@ -1990,6 +2002,10 @@ async fn main() -> Result<()> {
             }
         }
     });
+    // Leonida, the repository the stream follows: LEONIDA=0 turns its collection off.
+    if env::var("LEONIDA").as_deref() != Ok("0") {
+        tokio::spawn(leonida::collect_loop(app.clone()));
+    }
     if env::var("CHAT_COMMANDS").as_deref() == Ok("1") {
         tokio::spawn(chat_loop(app.clone()));
         if env::var("CHAT_REMINDER_MINUTES")

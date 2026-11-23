@@ -4,6 +4,10 @@
 
 ![The live screen](thumbnail.png)
 
+## Leonida
+
+The stream now follows [Leonida](https://github.com/ItsNotRexed/Leonida), GTA VI (Xbox Series) recompiled to run natively on PC: `PAGE=leonida.html`. The dashboard collects it every minute (`dashboard/src/leonida.rs`: stars and their pace, PRs merged today and in all, open PRs, contributors, the latest merges and the README's status table) and celebrates every thousand stars. `leonida-thumbnail.html` renders the stream's thumbnail at 1280×720. While `PAGE` starts with `leonida`, the chat messages present Leonida. `LEONIDA=0` turns its collection off.
+
 ## What it is
 
 A 24/7 YouTube live stream that shows the progress of [AnyPS5](https://github.com/boykopovar/AnyPS5) as a monitoring screen. Everything runs in Docker on a VPS: one container collects the data and serves a 1920×1080 dashboard, the other renders it in a headless browser and streams it to YouTube. It also records a daily vertical Short and can upload it to YouTube.

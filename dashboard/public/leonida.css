@@ -1,0 +1,71 @@
+/* Leonida: the same dark screen as AnyPS5 (styles.css), in the project's sunset colours. */
+:root {
+  --leo-pink: #ff4fa3;
+  --leo-orange: #ff9a3c;
+  --leo-violet: #8b5cf6;
+  --leo-gradient: linear-gradient(100deg, var(--leo-violet), var(--leo-pink) 50%, var(--leo-orange));
+}
+body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(255, 79, 163, 0.16), transparent 60%), radial-gradient(ellipse 70% 50% at 0% 110%, rgba(139, 92, 246, 0.14), transparent 60%), var(--page); }
+.leo { display: grid; grid-template-rows: 72px 232px 1fr 176px 22px; gap: 14px; width: 1920px; height: 1080px; padding: 16px 28px 12px; }
+
+.leo-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 28px; }
+.leo-brand { display: flex; align-items: center; gap: 16px; }
+.leo-brand img { width: 72px; height: 72px; }
+.leo-brand h1 { font-size: 44px; font-weight: 900; letter-spacing: -0.02em; line-height: 1; background: var(--leo-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.leo-sub { margin-top: 4px; font-size: 20px; color: var(--ink-2); white-space: nowrap; }
+.leo-headline { justify-self: center; padding: 10px 22px; border-radius: 12px; background: rgba(230, 103, 103, 0.14); box-shadow: inset 0 0 0 2px var(--series-8); font-size: 24px; font-weight: 800; white-space: nowrap; }
+.leo-right { display: flex; align-items: center; gap: 28px; }
+.leo-live { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 10px; background: var(--series-8); color: #fff; font-size: 22px; font-weight: 900; letter-spacing: 0.08em; }
+.leo-live .dot { width: 12px; height: 12px; border-radius: 50%; background: #fff; animation: leo-pulse 1.6s ease-in-out infinite; }
+@keyframes leo-pulse { 50% { opacity: 0.3; } }
+
+.leo-kpis { display: grid; grid-template-columns: 2.3fr 1fr 1fr 1fr; gap: 16px; }
+.leo-tile { position: relative; display: flex; flex-direction: column; justify-content: space-between; padding: 20px 26px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+.leo-label { font-size: 21px; font-weight: 700; color: var(--muted); }
+.leo-value { font-size: 84px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.leo-note { font-size: 20px; color: var(--ink-2); }
+.leo-stars { background: linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(255, 79, 163, 0.16) 55%, rgba(255, 154, 60, 0.14)), var(--surface); border-color: rgba(255, 79, 163, 0.35); }
+.leo-star-row { display: flex; align-items: center; gap: 30px; }
+.leo-star-value { font-size: 120px; font-weight: 900; letter-spacing: -0.04em; line-height: 0.95; font-variant-numeric: tabular-nums; }
+.leo-pace { font-size: 34px; font-weight: 900; color: var(--leo-orange); white-space: nowrap; }
+.leo-since { margin-top: 4px; font-size: 20px; color: var(--ink-2); white-space: nowrap; }
+.leo-goal { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; }
+.leo-goal-bar { height: 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.leo-goal-bar > span { display: block; height: 100%; width: 0; background: var(--leo-gradient); transition: width 1.2s ease; }
+.leo-goal-text { font-size: 20px; font-weight: 700; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.leo-bump { position: absolute; right: 26px; top: 16px; padding: 6px 14px; border-radius: 999px; background: var(--leo-gradient); color: #fff; font-size: 26px; font-weight: 900; opacity: 0; }
+.leo-bump.show { animation: leo-bump 3.2s ease both; }
+@keyframes leo-bump { 0% { opacity: 0; transform: translateY(10px); } 12%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-8px); } }
+
+.leo-main { display: grid; grid-template-columns: 1fr 760px; gap: 16px; min-height: 0; }
+.leo-rows { display: flex; flex-direction: column; gap: 0; margin-top: 2px; }
+.leo-rows li { display: grid; grid-template-columns: 30px 470px 1fr; align-items: baseline; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--grid); font-size: 19px; }
+.leo-rows li:last-child { border-bottom: 0; }
+.leo-mark { font-size: 19px; text-align: center; }
+.leo-what { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leo-row-note { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leo-rows li.done .leo-row-note { color: var(--good); }
+.leo-rows li.no .leo-what, .leo-rows li.no .leo-row-note { color: var(--series-8); }
+.leo-prs { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.leo-prs li { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 14px; padding: 5px 8px; border-radius: 10px; }
+.leo-prs li.fresh { animation: leo-fresh 4s ease; }
+@keyframes leo-fresh { 0% { background: rgba(255, 79, 163, 0.35); } 100% { background: transparent; } }
+.leo-prs img { width: 44px; height: 44px; border-radius: 50%; background: var(--surface-2); }
+.leo-pr-title { font-size: 21px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leo-pr-meta { margin-top: 2px; font-size: 17px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.leo-bottom { display: grid; grid-template-columns: 1fr 760px; gap: 16px; min-height: 0; }
+.leo-chart #chart { display: block; width: 100%; height: 108px; }
+.leo-cta { display: flex; align-items: center; justify-content: center; padding: 20px 28px; border-radius: 14px; background: linear-gradient(120deg, rgba(139, 92, 246, 0.35), rgba(255, 79, 163, 0.3) 55%, rgba(255, 154, 60, 0.28)); border: 2px solid rgba(255, 79, 163, 0.6); font-size: 30px; font-weight: 900; text-align: center; line-height: 1.25; }
+.leo-cta.swap { animation: leo-swap 0.6s ease; }
+@keyframes leo-swap { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+.leo-foot { display: flex; justify-content: space-between; align-items: center; gap: 24px; font-size: 15px; color: var(--muted); white-space: nowrap; }
+.leo-credit { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.leo-credit img { width: 18px; height: 18px; border-radius: 4px; }
+.leo-credit strong { color: var(--ink); }
+
+/* A thousand more stars: a full-screen moment, in the project's colours. */
+.takeover.leo-takeover { background: radial-gradient(ellipse at center, rgba(255, 79, 163, 0.35), rgba(13, 13, 13, 0.96) 70%); }
+.takeover.leo-takeover .takeover-kicker { color: var(--leo-orange); }
+.takeover.leo-takeover .takeover-value { background: var(--leo-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }

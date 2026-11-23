@@ -146,6 +146,21 @@ pub fn about_message(gta6: &str) -> String {
         "🎮 AnyPS5 converts PS5 games to run natively on PC, with no emulator. Open source: {REPOSITORY} · {gta6}"
     )
 }
+// The chat messages while the stream shows Leonida.
+pub const LEONIDA_REPO_URL: &str = "https://github.com/ItsNotRexed/Leonida";
+pub const LEONIDA_ABOUT: &str = "🌴 Leonida recompiles GTA VI (Xbox Series) to run natively on PC, built from your own copy. Early: it does not boot yet. Follow it live here. Repo: https://github.com/ItsNotRexed/Leonida";
+pub const LEONIDA_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe: Leonida's progress on GTA VI for PC, live 24/7, every merged PR and every star.";
+pub fn leonida_mode() -> bool {
+    std::env::var("PAGE").is_ok_and(|page| page.starts_with("leonida"))
+}
+pub fn leonida_star(stars: Option<i64>) -> String {
+    let count = stars
+        .map(|stars| format!("{} stars", n(stars)))
+        .unwrap_or_else(|| "thousands of stars".into());
+    format!(
+        "⭐ Leonida is at {count} already! Star it on GitHub to follow GTA VI on PC: {LEONIDA_REPO_URL}"
+    )
+}
 pub const CHAT_STAR: &str = "⭐ Support AnyPS5 with a star on GitHub: https://github.com/simnJS/AnyPS5 · It's free and helps the project get seen. Thank you!";
 pub const CHAT_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe to follow AnyPS5 and GTA VI on PC: the dump shows up here first. Every like helps more people find it!";
 pub const CHAT_REMINDER: &str = "💬 Ask the stream: !gta for GTA VI on AnyPS5, !game <name>, !lib <name>, !next, !top, !random. The answer shows up on screen. Discord: https://discord.gg/BHFztBPUe";
@@ -761,6 +776,14 @@ mod tests {
         assert!(CHAT_REMINDER.chars().count() <= 200);
         assert!(CHAT_LIKE.chars().count() <= 200);
         assert!(CHAT_STAR.chars().count() <= 200);
+        assert!(
+            LEONIDA_ABOUT.chars().count() <= 200,
+            "{}",
+            LEONIDA_ABOUT.chars().count()
+        );
+        assert!(LEONIDA_LIKE.chars().count() <= 200);
+        assert!(leonida_star(Some(1_234_567)).chars().count() <= 200);
+        assert!(leonida_star(Some(23_378)).contains("23,378 stars"));
         assert!(CHAT_STAR.contains("https://github.com/simnJS/AnyPS5"));
         assert!(CHAT_REMINDER.contains("https://discord.gg/BHFztBPUe"));
         // 2026-11-02 20:00 UTC is noon in California: half the quota day has gone.
