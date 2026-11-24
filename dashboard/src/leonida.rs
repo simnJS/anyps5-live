@@ -1,4 +1,5 @@
-//! Leonida (GTA VI, Xbox Series, recompiled to run natively on PC): the repository the stream follows now.
+//! The repository the stream follows (LEONIDA_REPO): Leonida until it was taken down from GitHub, now XCL
+//! (ivall/xcl, Xbox Series games running natively on Windows). The state key stays `leonida`.
 //! Every minute: stars, forks, PRs merged today and in all, open PRs, the latest merges; every 5 minutes the
 //! contributors and the README's status table. Served as `leonida` in /api/state for leonida.html.
 use crate::{AppState, fetch_json, mark_source_error, save_persisted};
@@ -22,8 +23,9 @@ static PARENS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\([^()]*\)"
 static CLAUSE_END_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\. |\.$|: |; | — | in the |, with ").unwrap());
 // A merge commit names its pull request: "Merge pull request #N" (GitHub) or "origin/pr/N" (merged locally).
-static MERGED_PR_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:pull request #|origin/pr/)(\d+)").unwrap());
+static MERGED_PR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:pull request #|origin/pr/|Merge PR #|\(PR #|\(#)(\d+)").unwrap()
+});
 static HEADLINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)## Project status\s*\n+\*\*([^*]+)\*\*").unwrap());
 
@@ -32,7 +34,87 @@ pub fn repo() -> String {
 }
 
 /// The README's "Project status": its bold headline and one short line per table row.
+// The cells of the Markdown table rows in a README section, the header row included.
+fn table_rows(section: &str) -> Vec<Vec<String>> {
+    section
+        .lines()
+        .filter(|line| line.starts_with('|') && !line.contains("---"))
+        .map(|line| {
+            line.trim()
+                .trim_matches('|')
+                .split('|')
+                .map(|c| c.trim().to_owned())
+                .collect()
+        })
+        .collect()
+}
+
+fn section<'a>(readme: &'a str, heading: &str) -> Option<&'a str> {
+    let start = readme.find(&format!("\n## {heading}"))?;
+    let rest = &readme[start + heading.len() + 4..];
+    Some(rest.split("\n## ").next().unwrap_or(rest))
+}
+
+fn mark_of(state: &str) -> &'static str {
+    if state.starts_with('✅') {
+        "done"
+    } else if state.starts_with('❌') {
+        "no"
+    } else {
+        "partial"
+    }
+}
+
+/// A README with a "Games" table (XCL's): one row per game, then the features of "What works" up to 13 rows,
+/// and the headline from its "Project state" line.
+fn parse_games(readme: &str) -> Option<Value> {
+    let games = table_rows(section(readme, "Games")?);
+    let header = games.first()?;
+    let state = header.iter().position(|h| h == "State")?;
+    let works = header
+        .iter()
+        .position(|h| h.starts_with("What"))
+        .unwrap_or(state + 1);
+    let mut rows: Vec<Value> = games
+        .iter()
+        .skip(1)
+        .filter(|cells| cells.len() > state)
+        .map(|cells| json!({"what": tidy(&cells[0]), "mark": mark_of(&cells[state]), "note": first_clause(cells.get(works).map_or("", String::as_str))}))
+        .collect();
+    if let Some(features) = section(readme, "What works") {
+        for cells in table_rows(features) {
+            if rows.len() >= 13 {
+                break;
+            }
+            if cells.len() < 3 || cells[0] == "Feature" {
+                continue;
+            }
+            rows.push(json!({"what": tidy(&cells[0]), "mark": mark_of(&cells[1]), "note": first_clause(&cells[2])}));
+        }
+    }
+    let state_line = readme
+        .split("**Project state:**")
+        .nth(1)
+        .map(|rest| {
+            rest.split(['–', ';', '.'])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_owned()
+        })
+        .unwrap_or_default();
+    let mut headline = state_line.chars();
+    let headline = headline
+        .next()
+        .map(|first| first.to_uppercase().chain(headline).collect::<String>())
+        .unwrap_or_default();
+    Some(json!({"headline": headline, "rows": rows, "boot": null}))
+}
+
 pub fn parse_status(readme: &str) -> Value {
+    if let Some(games) = parse_games(readme) {
+        return games;
+    }
     let headline = HEADLINE_RE
         .captures(readme)
         .map(|c| c[1].trim().to_owned())
@@ -102,7 +184,7 @@ pub fn apply_boot_override(status: &Value, overlay: &Value) -> Value {
     let Some(mark) = overlay["mark"].as_str() else {
         return status;
     };
-    if status["boot"]["mark"].as_str().unwrap_or("no") != "no" {
+    if status["boot"]["mark"].as_str() != Some("no") {
         return status;
     }
     let note = overlay["note"].clone();
@@ -156,6 +238,39 @@ async fn count_local_merges(
         crate::encode(&format!("repo:{} merge:true \"origin/pr\"{date}", repo()))
     );
     fetch_json(&app.client, &url, token).await.ok()?["total_count"].as_i64()
+}
+
+/// How many pull requests landed today (UTC), from the commits on the default branch: merged on GitHub, merged
+/// locally, squashed with "(PR #N, author)" or "(#N)". Up to 300 commits are read.
+async fn landed_today(app: &AppState, token: Option<&str>) -> Option<i64> {
+    let since = Utc::now().format("%Y-%m-%dT00:00:00Z");
+    let mut numbers = std::collections::HashSet::new();
+    for page in 1..=3 {
+        let url = format!(
+            "https://api.github.com/repos/{}/commits?since={since}&per_page=100&page={page}",
+            repo()
+        );
+        let commits = fetch_json(&app.client, &url, token).await.ok()?;
+        let commits = commits.as_array()?;
+        for commit in commits {
+            let first = commit["commit"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("");
+            if let Some(number) = MERGED_PR_RE
+                .captures(first)
+                .and_then(|c| c[1].parse::<i64>().ok())
+            {
+                numbers.insert(number);
+            }
+        }
+        if commits.len() < 100 {
+            break;
+        }
+    }
+    Some(numbers.len() as i64)
 }
 
 /// The pull requests that landed last, newest first, from the merge commits on the default branch: whether
@@ -248,6 +363,12 @@ async fn readme(app: &AppState, token: Option<&str>) -> Option<String> {
 async fn record_stars(app: &AppState, now: i64, stars: i64) -> Vec<Value> {
     let history = {
         let mut persisted = app.persisted.write().await;
+        // Another repository: its own history, and no boot date carried over.
+        if persisted["leonidaRepo"].as_str() != Some(&repo()) {
+            persisted["leonidaRepo"] = json!(repo());
+            persisted["leonidaStars"] = json!([]);
+            persisted["leonidaBootSince"] = Value::Null;
+        }
         let mut history = persisted["leonidaStars"]
             .as_array()
             .cloned()
@@ -306,6 +427,11 @@ pub async fn collect_loop(app: AppState) {
         );
         let merged = merged.map(|n| n + local.unwrap_or(0));
         let merged_today = merged_today.map(|n| n + local_today.unwrap_or(0));
+        // GitHub's count misses pull requests squashed or merged by hand and closed: the day's commits catch them.
+        let merged_today = match (merged_today, landed_today(&app, token).await) {
+            (Some(counted), Some(landed)) => Some(counted.max(landed)),
+            (counted, landed) => counted.or(landed),
+        };
         let closed = pulls
             .ok()
             .and_then(|v| v.as_array().cloned())
@@ -429,6 +555,25 @@ mod tests {
     }
 
     #[test]
+    fn a_games_table_becomes_the_status() {
+        let readme = "# XCL\n\n**Project state:** retail games run – Minecraft Preview and Unicorn Overlord are fully\nplayable; see Games.\n\n## Games\n\n| Game | Package (version) | State | What works | Limits |\n|---|---|---|---|---|\n| **Minecraft Preview** | `Microsoft.MinecraftBeta` 1.18 | ✅ | fully playable | – |\n| **A newer retail game** | – | 🚧 | starts in ~4 s, runs at a steady 30 fps | gameplay not reached yet |\n\n## What works\n\n### Running the game's code\n\n| Feature | State | What it does | Verified by |\n|---|---|---|---|\n| **PE loader** | ✅ | relocations, imports by name | the game's DLLs |\n\n## Controls\n";
+        let status = parse_status(readme);
+        assert_eq!(status["headline"], "Retail games run");
+        assert!(status["boot"].is_null());
+        let rows = status["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["what"], "Minecraft Preview");
+        assert_eq!(rows[0]["mark"], "done");
+        assert_eq!(rows[0]["note"], "fully playable");
+        assert_eq!(rows[1]["mark"], "partial");
+        assert_eq!(rows[1]["note"], "starts in ~4 s, runs at a steady 30 fps");
+        assert_eq!(rows[2]["what"], "PE loader");
+        // No boot row: the boot override leaves it alone.
+        let overlay = json!({"mark":"partial","headline":"It boots!","note":"x"});
+        assert_eq!(apply_boot_override(&status, &overlay), status);
+    }
+
+    #[test]
     fn merge_commits_name_their_pull_request() {
         let number = |message: &str| MERGED_PR_RE.captures(message).map(|c| c[1].to_owned());
         assert_eq!(
@@ -439,6 +584,12 @@ mod tests {
             number("Merge pull request #6693 from cynbun/awc").as_deref(),
             Some("6693")
         );
+        assert_eq!(number("Merge PR #338").as_deref(), Some("338"));
+        assert_eq!(
+            number("Memory: readable answers (PR #332, Vaximous)").as_deref(),
+            Some("332")
+        );
+        assert_eq!(number("Fix the loader (#41)").as_deref(), Some("41"));
         assert_eq!(number("docs: fix a typo"), None);
     }
 

@@ -167,6 +167,20 @@ pub fn leonida_about(boot_mark: Option<&str>, headline: &str) -> String {
     )
 }
 pub const LEONIDA_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe: Leonida's progress on GTA VI for PC, live 24/7, every merged PR and every star.";
+// The chat messages while the stream shows XCL (PAGE=xcl.html), Leonida having been taken down from GitHub.
+pub const XCL_REPO_URL: &str = "https://github.com/ivall/xcl";
+pub const XCL_ABOUT: &str = "🎮 XCL runs Xbox Series games natively on Windows: Minecraft Preview and Unicorn Overlord are fully playable already. Open source, followed live here: https://github.com/ivall/xcl";
+pub const XCL_LEONIDA: &str = "📢 Leonida was taken down from GitHub. This live now follows XCL, which already runs retail Xbox games on PC: https://github.com/ivall/xcl";
+pub const XCL_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe: XCL's progress, live 24/7. And never pay for a game .exe: it is a scam.";
+pub fn xcl_mode() -> bool {
+    std::env::var("PAGE").is_ok_and(|page| page.starts_with("xcl"))
+}
+pub fn xcl_star(stars: Option<i64>) -> String {
+    let count = stars
+        .map(|stars| format!("{} stars", n(stars)))
+        .unwrap_or_else(|| "more stars every hour".into());
+    format!("⭐ XCL is at {count}! Star it on GitHub to follow Xbox games on PC: {XCL_REPO_URL}")
+}
 pub fn leonida_mode() -> bool {
     std::env::var("PAGE").is_ok_and(|page| page.starts_with("leonida"))
 }
@@ -805,6 +819,14 @@ mod tests {
             );
         }
         assert!(LEONIDA_LIKE.chars().count() <= 200);
+        for text in [XCL_ABOUT, XCL_LEONIDA, XCL_LIKE] {
+            assert!(
+                text.chars().count() <= 200,
+                "{} chars: {text}",
+                text.chars().count()
+            );
+        }
+        assert!(xcl_star(Some(1_234_567)).chars().count() <= 200);
         assert!(leonida_star(Some(1_234_567)).chars().count() <= 200);
         assert!(leonida_star(Some(23_378)).contains("23,378 stars"));
         assert!(CHAT_STAR.contains("https://github.com/simnJS/AnyPS5"));

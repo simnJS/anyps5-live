@@ -1,0 +1,19 @@
+/* XCL: the Leonida screen (leonida.css) in Xbox greens. */
+:root {
+  --leo-violet: #0b7a1a;
+  --leo-pink: #2fd14a;
+  --leo-orange: #b7f34a;
+}
+body { background: radial-gradient(ellipse 80% 60% at 85% -10%, rgba(47, 209, 74, 0.16), transparent 60%), radial-gradient(ellipse 70% 50% at 0% 110%, rgba(16, 124, 16, 0.18), transparent 60%), var(--page); }
+.leo-brand img { width: 64px; height: 64px; }
+.leo-stars { background: linear-gradient(135deg, rgba(16, 124, 16, 0.32), rgba(47, 209, 74, 0.16) 55%, rgba(183, 243, 74, 0.12)), var(--surface); border-color: rgba(47, 209, 74, 0.4); }
+.leo-cta { background: linear-gradient(120deg, rgba(16, 124, 16, 0.4), rgba(47, 209, 74, 0.25) 55%, rgba(183, 243, 74, 0.2)); border-color: rgba(47, 209, 74, 0.6); }
+.leo-prs li.fresh { animation-name: xcl-fresh; }
+@keyframes xcl-fresh { 0% { background: rgba(47, 209, 74, 0.35); } 100% { background: transparent; } }
+.takeover.leo-takeover { background: radial-gradient(ellipse at center, rgba(47, 209, 74, 0.28), transparent 70%), #0d0d0d; }
+/* The Leonida news: red, not a celebration. */
+.takeover.xcl-news { background: radial-gradient(ellipse at center, rgba(208, 59, 59, 0.35), transparent 70%), #0d0d0d; }
+.takeover.xcl-news .takeover-kicker { color: #ff6b6b; }
+.takeover.xcl-news .takeover-value { background: linear-gradient(100deg, #ff6b6b, #ffb36b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.takeover.xcl-news .takeover-note { max-width: 1400px; margin-left: auto; margin-right: auto; }
+.takeover.xcl-news .takeover-note strong { color: #2fd14a; }

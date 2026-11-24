@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280, height=720">
+  <title>XCL live thumbnail</title>
+  <style>
+    html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; color: #f0efec; font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    body { background: radial-gradient(ellipse 70% 80% at 85% 25%, rgba(47, 209, 74, 0.45), transparent 65%), radial-gradient(ellipse 60% 60% at 0% 100%, rgba(208, 59, 59, 0.3), transparent 60%), #0d0d0d; }
+    .logo { position: absolute; right: 90px; top: 150px; width: 380px; filter: drop-shadow(0 20px 60px rgba(47, 209, 74, 0.55)); }
+    .text { position: absolute; left: 64px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
+    .live { display: inline-flex; align-items: center; gap: 12px; background: #d03b3b; color: #fff; font-size: 32px; font-weight: 900; letter-spacing: 0.06em; padding: 10px 22px 10px 18px; border-radius: 10px; }
+    .live i { width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+    .gone { margin-top: 22px; font-size: 64px; font-weight: 900; letter-spacing: -0.02em; color: #ff6b6b; text-decoration: line-through; text-decoration-thickness: 8px; }
+    h1 { margin: 6px 0 0; font-size: 190px; font-weight: 900; letter-spacing: -0.05em; line-height: 0.9; background: linear-gradient(100deg, #2fd14a, #b7f34a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .tag { margin-top: 14px; font-size: 52px; font-weight: 900; letter-spacing: -0.02em; }
+  </style>
+</head>
+<body>
+  <img class="logo" src="xcl-logo.svg" alt="">
+  <div class="text">
+    <div class="live"><i></i>LIVE 24/7</div>
+    <div class="gone">LEONIDA</div>
+    <h1>XCL</h1>
+    <div class="tag">Xbox games on PC</div>
+  </div>
+  <script>document.body.dataset.ready = "true";</script>
+</body>
+</html>

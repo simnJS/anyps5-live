@@ -4,6 +4,10 @@
 
 ![The live screen](thumbnail.png)
 
+## XCL
+
+Leonida was taken down from GitHub on 24 November 2026; the stream now follows [XCL](https://github.com/ivall/xcl), an Xbox Series compatibility layer for Windows: `PAGE=xcl.html` and `LEONIDA_REPO=ivall/xcl` (the collector and its `leonida` state key are shared). Its README's "Games" table and "What works" features make the status table, its "Project state" line the headline. `xcl.html` shows "Leonida was taken down" full screen when it opens and every 30 minutes until 25 November, and its band and chat messages say so too. `xcl-thumbnail.html` renders the thumbnail.
+
 ## Leonida
 
 The stream now follows [Leonida](https://github.com/ProjectLeonida/Leonida), GTA VI (Xbox Series) recompiled to run natively on PC: `PAGE=leonida.html`. The dashboard collects it every minute (`dashboard/src/leonida.rs`: stars and their pace, PRs merged today and in all, open PRs, contributors, the latest merges and the README's status table) and celebrates every thousand stars. `leonida-thumbnail.html` renders the stream's thumbnail at 1280×720. While `PAGE` starts with `leonida`, the chat messages present Leonida. While the README still says the game does not boot, `dashboard/public/leonida-boot.json` can say where the boot stands (its mark, headline and note replace the README's boot row); once the README's boot row changes, the README wins. It is read every minute, so a copy into the running container shows without a restart. Pull requests merged locally and closed ("Merge remote-tracking branch 'origin/pr/N'") are counted from their merge commits. `LEONIDA=0` turns its collection off.

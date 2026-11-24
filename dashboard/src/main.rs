@@ -1772,7 +1772,14 @@ async fn chat_reminder(app: AppState) {
         let mut persisted = app.persisted.write().await;
         let turn = persisted["chatReminderTurn"].as_i64().unwrap_or(0);
         persisted["chatReminderTurn"] = json!(turn + 1);
-        if chat::leonida_mode() {
+        if chat::xcl_mode() {
+            match turn % 4 {
+                0 => chat::XCL_ABOUT.to_owned(),
+                1 => chat::XCL_LEONIDA.to_owned(),
+                2 => chat::xcl_star(leonida_stars),
+                _ => chat::XCL_LIKE.to_owned(),
+            }
+        } else if chat::leonida_mode() {
             match turn % 3 {
                 0 => leonida_about,
                 1 => chat::leonida_star(leonida_stars),
@@ -1929,7 +1936,7 @@ async fn main() -> Result<()> {
     if let Some(parent) = data_file.parent() {
         fs::create_dir_all(parent).await?;
     }
-    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0,"leonidaStars":[],"leonidaBootSince":null});
+    let mut persisted = json!({"snapshots":[],"events":[],"prReports":{},"openPrReports":{},"releaseTag":null,"chatUnits":null,"chatReminderAt":null,"chatReminderTurn":0,"leonidaStars":[],"leonidaBootSince":null,"leonidaRepo":null});
     if let Ok(bytes) = fs::read(&data_file).await {
         if let Ok(saved) = serde_json::from_slice::<Value>(&bytes) {
             for key in [
@@ -1943,6 +1950,7 @@ async fn main() -> Result<()> {
                 "chatReminderTurn",
                 "leonidaStars",
                 "leonidaBootSince",
+                "leonidaRepo",
             ] {
                 if let Some(v) = saved.get(key) {
                     persisted[key] = v.clone();
