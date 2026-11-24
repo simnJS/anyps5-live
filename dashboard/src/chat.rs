@@ -169,7 +169,7 @@ pub fn leonida_about(boot_mark: Option<&str>, headline: &str) -> String {
 pub const LEONIDA_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe: Leonida's progress on GTA VI for PC, live 24/7, every merged PR and every star.";
 // The chat messages while the stream shows XCL (PAGE=xcl.html), Leonida having been taken down from GitHub.
 pub const XCL_REPO_URL: &str = "https://github.com/ivall/xcl";
-pub const XCL_ABOUT: &str = "🎮 XCL runs Xbox Series games natively on Windows: Minecraft Preview and Unicorn Overlord are fully playable already. Open source, followed live here: https://github.com/ivall/xcl";
+pub const XCL_ABOUT: &str = "🎮 XCL runs Xbox Series games natively on Windows: Minecraft Preview and Unicorn Overlord are fully playable, and GTA VI already shows its menus. Open source: https://github.com/ivall/xcl";
 pub const XCL_LEONIDA: &str = "📢 Leonida was taken down from GitHub. This live now follows XCL, which already runs retail Xbox games on PC: https://github.com/ivall/xcl";
 pub const XCL_LIKE: &str = "👍 Enjoying the live? Hit like and subscribe: XCL's progress, live 24/7. And never pay for a game .exe: it is a scam.";
 pub fn xcl_mode() -> bool {

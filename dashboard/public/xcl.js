@@ -14,6 +14,7 @@ const CTAS = [
   { text: "👍 Hit like if you want Xbox games on PC", ...LEONIDA_QR },
   { text: "🤖 This live was built with HangarAI", ...HANGAR_QR },
   { text: "🔔 Subscribe: every game that comes to life shows up here", ...LEONIDA_QR },
+  { text: "🌴 GTA VI already shows its menus on PC with XCL", ...LEONIDA_QR },
   { text: "💬 Which Xbox game should run next? Tell the chat", ...LEONIDA_QR },
 ];
 let bootMark = null;
@@ -23,7 +24,7 @@ const TICKER_PX_PER_SECOND = 70;
 const WARNINGS = () => [
   { text: "Leonida was taken down from GitHub: this live now follows XCL" },
   { text: "Never pay for a game .exe: it is a scam", danger: true },
-  { text: "GTA VI is not playable on PC: every video showing it is fake", danger: true },
+  { text: "GTA VI runs to its menus on XCL, gameplay is not reached yet: every video of GTA VI gameplay on PC is fake", danger: true },
   { text: "XCL is free and open source: it runs games from your own copy, there is nothing to buy" },
   { text: "Never run files sent in comments, DMs, Discord or Telegram", danger: true },
   { text: "The only real source: github.com/ivall/xcl" },
@@ -135,16 +136,36 @@ function renderStars(leonida) {
   $("goal-text").textContent = `Next: ${fmt(next)} ⭐${eta}`;
 }
 
-// The header: the README's "Project state" line and how many games are fully playable.
+// XCL's README calls it "a newer retail game": the stream names it GTA VI (its shader pack is GTA VI's), puts it
+// first in gold, and gives it the header.
+const GTA_ROW = /newer retail game/i;
+
+// Whole clauses only: the server cuts a long README note at 90 characters, mid-word.
+function wholeClauses(note) {
+  const parts = String(note ?? "").split(", ");
+  if (note.length >= 89 && parts.length > 1) parts.pop();
+  const text = parts.join(", ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function renderStatus(status) {
   if (!status) return;
-  const playable = status.rows.filter((row) => /fully playable/i.test(row.note)).length;
-  const count = playable ? ` · ${playable} games fully playable` : "";
-  $("headline").textContent = `✅ ${status.headline || "Retail games run"} on PC${count}`;
-  $("headline").className = "leo-headline done";
+  const gta = status.rows.find((row) => GTA_ROW.test(row.what));
+  const others = status.rows.filter((row) => row !== gta);
+  const playable = others.filter((row) => /fully playable/i.test(row.note)).length;
+  if (gta) {
+    const where = gta.mark === "done" ? "✅ GTA VI runs on PC with XCL" : "🌴 GTA VI on PC with XCL: menus showing";
+    $("headline").textContent = `${where}${gta.limits ? `, ${gta.limits}` : ""}`;
+    $("headline").className = "leo-headline gta";
+  } else {
+    $("headline").textContent = `✅ ${status.headline || "Retail games run"} on PC${playable ? ` · ${playable} games fully playable` : ""}`;
+    $("headline").className = "leo-headline done";
+  }
   renderTicker();
   const rowIcon = { done: "✅", partial: "🟡", no: "❌" };
-  $("rows").innerHTML = status.rows.map((row) => `<li class="${escape(row.mark)}"><span class="leo-mark">${rowIcon[row.mark] ?? "🟡"}</span><span class="leo-what">${escape(row.what)}</span><span class="leo-row-note">${escape(row.note)}</span></li>`).join("");
+  const row = (item) => `<li class="${escape(item.mark)}"><span class="leo-mark">${rowIcon[item.mark] ?? "🟡"}</span><span class="leo-what">${escape(item.what)}</span><span class="leo-row-note">${escape(item.note)}</span></li>`;
+  const gtaRow = gta ? `<li class="gta"><span class="leo-mark">🌴</span><span class="leo-what">GTA VI</span><span class="leo-row-note">${escape(wholeClauses(gta.note))}${gta.limits ? ` · <em>${escape(gta.limits)}</em>` : ""}</span></li>` : "";
+  $("rows").innerHTML = gtaRow + others.slice(0, gta ? 10 : 13).map(row).join("");
 }
 
 function renderPrs(list) {

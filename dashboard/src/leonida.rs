@@ -79,7 +79,15 @@ fn parse_games(readme: &str) -> Option<Value> {
         .iter()
         .skip(1)
         .filter(|cells| cells.len() > state)
-        .map(|cells| json!({"what": tidy(&cells[0]), "mark": mark_of(&cells[state]), "note": first_clause(cells.get(works).map_or("", String::as_str))}))
+        .map(|cells| {
+            let limits = header
+                .iter()
+                .position(|h| h == "Limits")
+                .and_then(|i| cells.get(i))
+                .map(|l| first_clause(l))
+                .filter(|l| !l.is_empty() && l != "–");
+            json!({"what": tidy(&cells[0]), "mark": mark_of(&cells[state]), "note": first_clause(cells.get(works).map_or("", String::as_str)), "limits": limits})
+        })
         .collect();
     if let Some(features) = section(readme, "What works") {
         for cells in table_rows(features) {
@@ -567,6 +575,8 @@ mod tests {
         assert_eq!(rows[0]["note"], "fully playable");
         assert_eq!(rows[1]["mark"], "partial");
         assert_eq!(rows[1]["note"], "starts in ~4 s, runs at a steady 30 fps");
+        assert_eq!(rows[1]["limits"], "gameplay not reached yet");
+        assert!(rows[0]["limits"].is_null());
         assert_eq!(rows[2]["what"], "PE loader");
         // No boot row: the boot override leaves it alone.
         let overlay = json!({"mark":"partial","headline":"It boots!","note":"x"});
